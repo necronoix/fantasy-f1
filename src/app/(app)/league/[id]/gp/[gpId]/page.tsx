@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getGpWithSelection } from '@/app/actions/gp'
 import { LeagueNav } from '@/components/ui/LeagueNav'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -13,6 +13,7 @@ interface Props { params: Promise<{ id: string; gpId: string }> }
 export default async function GpPage({ params }: Props) {
   const { id, gpId } = await params
   const supabase = await createClient()
+  const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 

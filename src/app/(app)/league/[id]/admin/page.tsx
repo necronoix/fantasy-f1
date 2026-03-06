@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { LeagueNav } from '@/components/ui/LeagueNav'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -11,6 +11,7 @@ interface Props { params: Promise<{ id: string }> }
 export default async function AdminPage({ params }: Props) {
   const { id } = await params
   const supabase = await createClient()
+  const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
@@ -102,6 +103,7 @@ export default async function AdminPage({ params }: Props) {
 
 async function AuditLog({ leagueId }: { leagueId: string }) {
   const supabase = await createClient()
+  const admin = createAdminClient()
   const { data: logs } = await supabase
     .from('audit_log')
     .select('*, profile:profiles(display_name)')

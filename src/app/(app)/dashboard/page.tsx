@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getMyLeagues } from '@/app/actions/league'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -7,6 +7,7 @@ import { Plus, LogIn, Flag, ChevronRight } from 'lucide-react'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
+  const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   const myLeagues = await getMyLeagues()

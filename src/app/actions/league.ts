@@ -152,7 +152,8 @@ export async function getMyLeagues() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return []
 
-  const { data } = await supabase
+  const admin = createAdminClient()
+  const { data } = await admin
     .from('league_members')
     .select('*, league:leagues(*)')
     .eq('user_id', user.id)
@@ -166,7 +167,8 @@ export async function getLeagueDetails(leagueId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data } = await supabase
+  const admin = createAdminClient()
+  const { data } = await admin
     .from('leagues')
     .select(`
       *,
