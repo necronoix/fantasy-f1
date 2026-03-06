@@ -5,6 +5,11 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { notFound } from 'next/navigation'
 import { Trophy } from 'lucide-react'
 
+type RosterDriverEntry = {
+  user_id: string
+  driver: { helmet_url?: string | null; short_name: string; team: { color: string } }
+}
+
 interface Props { params: Promise<{ id: string }> }
 
 export default async function StandingsPage({ params }: Props) {
@@ -14,7 +19,7 @@ export default async function StandingsPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: myMembership } = await supabase
+  const { data: myMembership } = await admin
     .from('league_members')
     .select('role')
     .eq('league_id', id)
@@ -23,6 +28,18 @@ export default async function StandingsPage({ params }: Props) {
   if (!myMembership) notFound()
 
   const { scores, members } = await getStandings(id)
+
+  // Fetch rosters with driver helmets for visual display
+  const { data: allRostersRaw } = await admin
+    .from('rosters')
+    .select('user_id, driver:drivers(helmet_url, short_name, team:teams(color))')
+    .eq('league_id', id)
+
+  const rostersByUser: Record<string, RosterDriverEntry['driver'][]> = {}
+  for (const r of (allRostersRaw ?? []) as unknown as RosterDriverEntry[]) {
+    if (!rostersByUser[r.user_id]) rostersByUser[r.user_id] = []
+    rostersByUser[r.user_id]!.push(r.driver)
+  }
 
   // Aggregate totals per user
   const totals: Record<string, { name: string; total: number; gps: number }> = {}
@@ -91,7 +108,7 @@ export default async function StandingsPage({ params }: Props) {
                 <div key={entry.uid}
                   className={`flex items-center justify-between p-3 rounded-lg ${isMe ? 'bg-f1-red/10 border border-f1-red/30' : 'bg-f1-gray-dark'}`}>
                   <div className="flex items-center gap-3">
-                    <span className={`text-2xl font-black w-8 text-center ${medalColors[i] ?? 'text-f1-gray-light'}`}>
+                    <span className={`text-2xl font-black w-8 text-center flex-shrink-0 ${medalColors[i] ?? 'text-f1-gray-light'}`}>
                       {i + 1}
                     </span>
                     <div>
@@ -99,7 +116,29 @@ export default async function StandingsPage({ params }: Props) {
                         {entry.name}
                         {isMe && <span className="text-f1-red text-xs ml-2">(tu)</span>}
                       </p>
-                      <p className="text-f1-gray text-xs">{entry.gps} GP giocati</p>
+                      {/* Driver helmet row */}
+                      <div className="flex items-center gap-1 mt-1">
+                        {(rostersByUser[entry.uid] ?? []).map((d, di) => (
+                          d.helmet_url ? (
+                            <img
+                              key={di}
+                              src={d.helmet_url}
+                              alt={d.short_name}
+                              title={d.short_name}
+                              className="w-5 h-5 object-contain"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                          ) : (
+                            <span key={di} className="text-[9px] font-bold px-1 rounded"
+                              style={{ backgroundColor: `${d.team?.color ?? '#888'}30`, color: d.team?.color ?? '#888' }}>
+                              {d.short_name}
+                            </span>
+                          )
+                        ))}
+                        {(rostersByUser[entry.uid] ?? []).length === 0 && (
+                          <span className="text-f1-gray text-xs">{entry.gps} GP giocati</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">

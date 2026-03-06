@@ -69,23 +69,41 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
         <div className="grid grid-cols-2 gap-2">
           {roster.map((entry) => {
             const driver = entry.driver as Record<string, unknown>
+            const team = driver?.team as Record<string, unknown>
+            const teamColor = String(team?.color ?? '#888')
+            const helmetUrl = String(driver?.helmet_url ?? '')
             const isSel = captain === String(driver?.id ?? '')
             return (
               <button
                 key={String(driver?.id ?? '')}
                 type="button"
                 onClick={() => setCaptain(String(driver?.id ?? ''))}
-                className={`flex items-center gap-2 p-3 rounded-lg border transition-all text-left ${
+                className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all text-left relative overflow-hidden ${
                   isSel
-                    ? 'border-f1-red bg-f1-red/10 text-white'
-                    : 'border-f1-gray-dark hover:border-f1-gray-mid text-f1-gray-light'
+                    ? 'border-f1-red bg-f1-red/10'
+                    : 'border-f1-gray-dark hover:border-f1-gray-mid'
                 }`}
+                style={isSel ? {} : { borderColor: `${teamColor}40` }}
               >
-                {isSel && <Star className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
-                <div className="min-w-0">
-                  <p className="font-bold text-sm truncate">{String(driver?.name ?? '')}</p>
-                  <p className="text-xs opacity-70">{String((driver?.team as Record<string, unknown>)?.short_name ?? '')}</p>
+                <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-l-lg" style={{ backgroundColor: teamColor }} />
+                {helmetUrl ? (
+                  <img
+                    src={helmetUrl}
+                    alt=""
+                    className="w-10 h-10 object-contain flex-shrink-0 ml-1"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ml-1"
+                    style={{ backgroundColor: `${teamColor}20`, color: teamColor }}>
+                    {String(driver?.short_name ?? '').slice(0, 3)}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-xs truncate text-white">{String(driver?.name ?? '')}</p>
+                  <p className="text-[10px] text-f1-gray">{String(team?.name ?? '')}</p>
                 </div>
+                {isSel && <Star className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />}
               </button>
             )
           })}

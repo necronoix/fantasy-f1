@@ -35,8 +35,8 @@ export function AuctionRoom({
   const [timeLeft, setTimeLeft] = useState(getTimerSeconds(String(initialAuction.ends_at)))
   const [pending, startTransition] = useTransition()
 
-  const driver = auction.target_driver_id as Record<string, unknown> | string
-  const driverObj = typeof driver === 'object' ? driver : null
+  // target_driver is the joined object from getActiveAuction
+  const driverObj = (auction.target_driver ?? auction.target_driver_id) as Record<string, unknown> | null
   const leader = auction.leader as Record<string, unknown> | null
 
   const currentBid = Number(auction.current_bid ?? 1)
@@ -122,10 +122,18 @@ export function AuctionRoom({
   const timerColor = timeLeft <= 5 ? 'bg-red-500' : timeLeft <= 10 ? 'bg-yellow-500' : 'bg-green-500'
 
   if (auction.status === 'closed') {
+    const closedDriver = driverObj
     return (
       <div className="bg-f1-black-light border border-f1-gray-dark rounded-xl p-6 text-center">
-        <div className="text-5xl mb-3">🏁</div>
-        <p className="text-xl font-black text-white mb-1">Asta chiusa!</p>
+        {closedDriver && String(closedDriver.helmet_url ?? '') ? (
+          <img src={String(closedDriver.helmet_url)} alt="" className="w-16 h-16 object-contain mx-auto mb-3"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        ) : (
+          <div className="text-5xl mb-3">🏁</div>
+        )}
+        <p className="text-xl font-black text-white mb-1">
+          {closedDriver ? String(closedDriver.name ?? 'Asta chiusa!') : 'Asta chiusa!'}
+        </p>
         {auction.leader_user_id ? (
           <p className="text-f1-gray-light text-sm">
             Aggiudicato a <span className="text-f1-red font-bold">{String((leader as Record<string, unknown>)?.display_name ?? 'Unknown')}</span> per {currentBid} cr
@@ -154,17 +162,47 @@ export function AuctionRoom({
         </div>
 
         {driverObj && (
-          <div className="flex items-center gap-4 mb-5">
-            <div className="w-12 h-12 rounded-xl bg-f1-red/20 flex items-center justify-center text-xl font-black text-f1-red">
-              {String((driverObj as Record<string, unknown>).number ?? '?')}
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-white">
-                {String((driverObj as Record<string, unknown>).name ?? '')}
-              </h2>
-              <p className="text-f1-gray-light text-sm">
-                {String(((driverObj as Record<string, unknown>).team as Record<string, unknown>)?.name ?? '')}
-              </p>
+          <div className="flex items-center gap-4 mb-5 relative">
+            {/* Driver photo */}
+            {String(driverObj.photo_url ?? '') && (
+              <div className="absolute right-0 top-0 bottom-0 w-28 overflow-hidden pointer-events-none">
+                <img
+                  src={String(driverObj.photo_url)}
+                  alt=""
+                  className="absolute bottom-0 right-0 h-28 object-contain object-bottom opacity-80"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              </div>
+            )}
+            {/* Helmet + info */}
+            <div className="flex items-center gap-3 flex-1 z-10">
+              {String(driverObj.helmet_url ?? '') ? (
+                <img
+                  src={String(driverObj.helmet_url)}
+                  alt=""
+                  className="w-14 h-14 object-contain flex-shrink-0 drop-shadow-lg"
+                  onError={(e) => {
+                    const el = e.target as HTMLImageElement
+                    el.style.display = 'none'
+                    if (el.nextElementSibling) (el.nextElementSibling as HTMLElement).style.display = 'flex'
+                  }}
+                />
+              ) : null}
+              <div
+                className="w-14 h-14 rounded-xl bg-f1-red/20 flex items-center justify-center text-xl font-black text-f1-red flex-shrink-0"
+                style={{ display: String(driverObj.helmet_url ?? '') ? 'none' : 'flex' }}
+              >
+                {String(driverObj.number ?? '?')}
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-f1-gray-light">
+                  {String((driverObj.team as Record<string, unknown>)?.name ?? '')}
+                </p>
+                <h2 className="text-2xl font-black text-white leading-tight">
+                  {String(driverObj.name ?? '')}
+                </h2>
+                <p className="text-f1-gray text-xs">#{String(driverObj.number ?? '')}</p>
+              </div>
             </div>
           </div>
         )}
