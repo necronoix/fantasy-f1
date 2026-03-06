@@ -4,7 +4,7 @@ import { setCaptainAndPredictions } from '@/app/actions/gp'
 import { Button } from '@/components/ui/Button'
 import { useState, useTransition } from 'react'
 import toast from 'react-hot-toast'
-import { Star } from 'lucide-react'
+import { Star, Target } from 'lucide-react'
 
 interface Props {
   leagueId: string
@@ -22,11 +22,14 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
   const [winner, setWinner] = useState<string>(String(predictions.winner_driver_id ?? ''))
   const [fastestLap, setFastestLap] = useState<string>(String(predictions.fastest_lap_driver_id ?? ''))
   const [safetyCar, setSafetyCar] = useState<boolean>(Boolean(predictions.safety_car))
+  const [podium, setPodium] = useState<string[]>((predictions.podium_driver_ids as string[]) ?? ['', '', ''])
   const [pending, startTransition] = useTransition()
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!captain) return toast.error('Scegli un capitano!')
+
+    const podiumDriverIds = podium.filter(Boolean)
 
     startTransition(async () => {
       const result = await setCaptainAndPredictions(leagueId, gpId, captain, {
@@ -34,15 +37,19 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
         winner_driver_id: winner || undefined,
         fastest_lap_driver_id: fastestLap || undefined,
         safety_car: safetyCar,
+        podium_driver_ids: podiumDriverIds.length > 0 ? podiumDriverIds : undefined,
       })
       if (result?.error) toast.error(result.error)
       else toast.success('Selezione salvata!')
     })
   }
 
-  const driverSelect = (value: string, onChange: (v: string) => void, label: string) => (
+  const driverSelect = (value: string, onChange: (v: string) => void, label: string, bonus: string) => (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">{label}</label>
+      <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider flex items-center justify-between">
+        <span>{label}</span>
+        <span className="text-green-400 font-bold normal-case">{bonus}</span>
+      </label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -116,13 +123,49 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
         </div>
       </div>
 
-      {/* Predictions */}
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">Pronostici (opzionali)</p>
-        {driverSelect(pole, setPole, 'Pole Position')}
-        {driverSelect(winner, setWinner, 'Vincitore Gara')}
-        {driverSelect(fastestLap, setFastestLap, 'Giro Veloce')}
-        <div className="flex items-center gap-3 py-2">
+      {/* Predictions / Scommesse */}
+      <div className="bg-f1-black-light border border-f1-gray-dark rounded-xl p-4 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Target className="w-4 h-4 text-f1-red" />
+          <p className="text-xs font-bold text-white uppercase tracking-wider">Scommesse</p>
+          <span className="text-f1-gray text-xs">(punti bonus se indovini)</span>
+        </div>
+
+        {driverSelect(pole, setPole, 'Pole Position', '+5 pt')}
+        {driverSelect(winner, setWinner, 'Vincitore Gara', '+5 pt')}
+        {driverSelect(fastestLap, setFastestLap, 'Giro Veloce', '+3 pt')}
+
+        {/* Podium selection */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider flex items-center justify-between">
+            <span>Podio (scegli fino a 3)</span>
+            <span className="text-green-400 font-bold normal-case">+2 pt cad.</span>
+          </label>
+          <div className="space-y-1.5">
+            {[0, 1, 2].map((i) => (
+              <select
+                key={i}
+                value={podium[i] ?? ''}
+                onChange={(e) => {
+                  const newPodium = [...podium]
+                  newPodium[i] = e.target.value
+                  setPodium(newPodium)
+                }}
+                className="w-full bg-f1-gray-dark border border-f1-gray-mid rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-f1-red"
+              >
+                <option value="">— {i + 1}° posto —</option>
+                {allDrivers.map((d) => (
+                  <option key={String(d.id)} value={String(d.id)}>
+                    {String(d.short_name)} — {String(d.name)}
+                  </option>
+                ))}
+              </select>
+            ))}
+          </div>
+        </div>
+
+        {/* Safety car */}
+        <div className="flex items-center gap-3 py-1">
           <input
             type="checkbox"
             id="safety_car"
@@ -130,9 +173,10 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
             onChange={(e) => setSafetyCar(e.target.checked)}
             className="w-4 h-4 accent-f1-red"
           />
-          <label htmlFor="safety_car" className="text-sm text-f1-gray-light cursor-pointer">
+          <label htmlFor="safety_car" className="text-sm text-f1-gray-light cursor-pointer flex-1">
             Safety Car durante la gara
           </label>
+          <span className="text-green-400 text-xs font-bold">+2 pt</span>
         </div>
       </div>
 

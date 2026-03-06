@@ -15,7 +15,6 @@ interface Props {
 
 export function GpResultsForm({ leagueId, gpId, allDrivers, hasSprintRace }: Props) {
   const [pending, startTransition] = useTransition()
-  const positions = Array.from({ length: allDrivers.length }, (_, i) => i + 1)
 
   // Qualifying
   const [qualOrder, setQualOrder] = useState<string[]>(Array(22).fill(''))
@@ -24,6 +23,7 @@ export function GpResultsForm({ leagueId, gpId, allDrivers, hasSprintRace }: Pro
   const [dnf, setDnf] = useState<string[]>([])
   const [dsq, setDsq] = useState<string[]>([])
   const [fastestLap, setFastestLap] = useState<string>('')
+  const [safetyCar, setSafetyCar] = useState<boolean>(false)
   // Sprint
   const [sprintOrder, setSprintOrder] = useState<string[]>(Array(22).fill(''))
 
@@ -51,6 +51,7 @@ export function GpResultsForm({ leagueId, gpId, allDrivers, hasSprintRace }: Pro
     const results: GpResultsData = {
       qualifying_order: qualifyingOrder,
       race_order: raceOrderData,
+      safety_car: safetyCar,
       ...(hasSprintRace && {
         sprint_order: sprintOrder.filter(Boolean).map((driverId, i) => ({
           driver_id: driverId,
@@ -153,6 +154,18 @@ export function GpResultsForm({ leagueId, gpId, allDrivers, hasSprintRace }: Pro
               </option>
             ))}
           </select>
+        </div>
+        <div className="flex items-center gap-3 py-2">
+          <input
+            type="checkbox"
+            id="safety_car_result"
+            checked={safetyCar}
+            onChange={(e) => setSafetyCar(e.target.checked)}
+            className="w-4 h-4 accent-f1-red"
+          />
+          <label htmlFor="safety_car_result" className="text-sm text-f1-gray-light cursor-pointer font-semibold">
+            Safety Car durante la gara
+          </label>
         </div>
       </div>
 

@@ -93,6 +93,12 @@ export function computeGpScore(
     })
   }
 
+  if (predictions.safety_car !== undefined && results.safety_car !== undefined) {
+    if (predictions.safety_car === results.safety_car) {
+      predictionsPts += pRules.safety_car
+    }
+  }
+
   const driversTotal = driverBreakdowns.reduce((sum, d) => sum + d.subtotal, 0)
   const total = driversTotal + predictionsPts
 

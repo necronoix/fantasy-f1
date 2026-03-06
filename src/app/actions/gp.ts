@@ -178,7 +178,7 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
 export async function getGpWithSelection(leagueId: string, gpId: string, userId: string) {
   const admin = createAdminClient()
 
-  const [gpRes, selectionRes, rosterRes, scoresRes] = await Promise.all([
+  const [gpRes, selectionRes, rosterRes, scoresRes, allSelectionsRes] = await Promise.all([
     admin.from('grands_prix').select('*').eq('id', gpId).single(),
     admin
       .from('gp_selections')
@@ -198,6 +198,11 @@ export async function getGpWithSelection(leagueId: string, gpId: string, userId:
       .eq('league_id', leagueId)
       .eq('gp_id', gpId)
       .order('total_points', { ascending: false }),
+    admin
+      .from('gp_selections')
+      .select('*, profile:profiles(display_name)')
+      .eq('league_id', leagueId)
+      .eq('gp_id', gpId),
   ])
 
   return {
@@ -205,6 +210,7 @@ export async function getGpWithSelection(leagueId: string, gpId: string, userId:
     selection: selectionRes.data,
     roster: rosterRes.data ?? [],
     scores: scoresRes.data ?? [],
+    allSelections: allSelectionsRes.data ?? [],
   }
 }
 

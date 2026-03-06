@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { validateAuctionBid } from '@/lib/scoring'
 
@@ -9,7 +9,9 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: member } = await supabase
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
     .from('league_members')
     .select('role')
     .eq('league_id', leagueId)
@@ -18,7 +20,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
 
   if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può avviare l\'asta' }
 
-  const { data: activeAuction } = await supabase
+  const { data: activeAuction } = await admin
     .from('auction_state')
     .select('id')
     .eq('league_id', leagueId)
@@ -27,7 +29,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
 
   if (activeAuction) return { error: 'C\'è già un\'asta in corso' }
 
-  const { data: existingRoster } = await supabase
+  const { data: existingRoster } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -36,7 +38,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
 
   if (existingRoster) return { error: 'Questo pilota è già in una rosa' }
 
-  const { data: league } = await supabase
+  const { data: league } = await admin
     .from('leagues')
     .select('settings_json')
     .eq('id', leagueId)
@@ -45,7 +47,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
   const timerSeconds = (league?.settings_json as { bid_timer_seconds?: number })?.bid_timer_seconds ?? 30
   const endsAt = new Date(Date.now() + timerSeconds * 1000).toISOString()
 
-  const { data: auction, error } = await supabase
+  const { data: auction, error } = await admin
     .from('auction_state')
     .insert({
       league_id: leagueId,
@@ -60,7 +62,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
 
   if (error) return { error: error.message }
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: leagueId,
     user_id: user.id,
     action: 'auction_started',
@@ -76,7 +78,9 @@ export async function placeBid(auctionId: string, amount: number) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: auction } = await supabase
+  const admin = createAdminClient()
+
+  const { data: auction } = await admin
     .from('auction_state')
     .select('*, leagues(settings_json)')
     .eq('id', auctionId)
@@ -86,7 +90,7 @@ export async function placeBid(auctionId: string, amount: number) {
   if (auction.status !== 'active') return { error: 'L\'asta non è attiva' }
   if (new Date(auction.ends_at) < new Date()) return { error: 'L\'asta è scaduta' }
 
-  const { data: member } = await supabase
+  const { data: member } = await admin
     .from('league_members')
     .select('credits_left')
     .eq('league_id', auction.league_id)
@@ -95,7 +99,7 @@ export async function placeBid(auctionId: string, amount: number) {
 
   if (!member) return { error: 'Non sei membro di questa lega' }
 
-  const { count: rosterCount } = await supabase
+  const { count: rosterCount } = await admin
     .from('rosters')
     .select('*', { count: 'exact', head: true })
     .eq('league_id', auction.league_id)
@@ -116,7 +120,7 @@ export async function placeBid(auctionId: string, amount: number) {
     (auction.leagues as { settings_json?: { bid_timer_seconds?: number } })?.settings_json?.bid_timer_seconds ?? 30
   const newEndsAt = new Date(Date.now() + timerSeconds * 1000).toISOString()
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await admin
     .from('auction_state')
     .update({
       current_bid: amount,
@@ -128,14 +132,14 @@ export async function placeBid(auctionId: string, amount: number) {
 
   if (updateError) return { error: updateError.message }
 
-  await supabase.from('bids').insert({
+  await admin.from('bids').insert({
     league_id: auction.league_id,
     auction_id: auctionId,
     user_id: user.id,
     amount,
   })
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: auction.league_id,
     user_id: user.id,
     action: 'bid_placed',
@@ -151,7 +155,9 @@ export async function closeAuction(auctionId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: auction } = await supabase
+  const admin = createAdminClient()
+
+  const { data: auction } = await admin
     .from('auction_state')
     .select('*')
     .eq('id', auctionId)
@@ -159,7 +165,7 @@ export async function closeAuction(auctionId: string) {
 
   if (!auction) return { error: 'Asta non trovata' }
 
-  const { data: member } = await supabase
+  const { data: member } = await admin
     .from('league_members')
     .select('role')
     .eq('league_id', auction.league_id)
@@ -171,13 +177,13 @@ export async function closeAuction(auctionId: string) {
     return { error: 'Asta non ancora scaduta' }
   }
 
-  await supabase
+  await admin
     .from('auction_state')
     .update({ status: 'closed' })
     .eq('id', auctionId)
 
   if (auction.leader_user_id) {
-    await supabase.from('rosters').insert({
+    await admin.from('rosters').insert({
       league_id: auction.league_id,
       user_id: auction.leader_user_id,
       driver_id: auction.target_driver_id,
@@ -185,7 +191,7 @@ export async function closeAuction(auctionId: string) {
       acquired_via: auction.type === 'initial' ? 'initial_auction' : 'mini_auction',
     })
 
-    const { data: winnerMember } = await supabase
+    const { data: winnerMember } = await admin
       .from('league_members')
       .select('credits_spent, credits_left')
       .eq('league_id', auction.league_id)
@@ -193,7 +199,7 @@ export async function closeAuction(auctionId: string) {
       .single()
 
     if (winnerMember) {
-      await supabase
+      await admin
         .from('league_members')
         .update({
           credits_spent: winnerMember.credits_spent + auction.current_bid,
@@ -203,9 +209,8 @@ export async function closeAuction(auctionId: string) {
         .eq('user_id', auction.leader_user_id)
     }
 
-    // Mini-auction: remove dropped driver from roster
     if (auction.type === 'mini' && auction.drop_driver_user_id && auction.drop_driver_id) {
-      const { data: droppedRoster } = await supabase
+      const { data: droppedRoster } = await admin
         .from('rosters')
         .select('purchase_price')
         .eq('league_id', auction.league_id)
@@ -213,7 +218,7 @@ export async function closeAuction(auctionId: string) {
         .eq('driver_id', auction.drop_driver_id)
         .single()
 
-      await supabase
+      await admin
         .from('rosters')
         .delete()
         .eq('league_id', auction.league_id)
@@ -221,7 +226,7 @@ export async function closeAuction(auctionId: string) {
         .eq('driver_id', auction.drop_driver_id)
 
       if (droppedRoster) {
-        const { data: dropper } = await supabase
+        const { data: dropper } = await admin
           .from('league_members')
           .select('credits_spent, credits_left')
           .eq('league_id', auction.league_id)
@@ -229,7 +234,7 @@ export async function closeAuction(auctionId: string) {
           .single()
 
         if (dropper) {
-          await supabase
+          await admin
             .from('league_members')
             .update({
               credits_spent: Math.max(0, dropper.credits_spent - droppedRoster.purchase_price),
@@ -241,7 +246,7 @@ export async function closeAuction(auctionId: string) {
       }
     }
 
-    await supabase.from('audit_log').insert({
+    await admin.from('audit_log').insert({
       league_id: auction.league_id,
       user_id: user.id,
       action: 'auction_closed',
@@ -267,7 +272,9 @@ export async function startMiniAuction(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: ownedDriver } = await supabase
+  const admin = createAdminClient()
+
+  const { data: ownedDriver } = await admin
     .from('rosters')
     .select('id, purchase_price')
     .eq('league_id', leagueId)
@@ -277,7 +284,7 @@ export async function startMiniAuction(
 
   if (!ownedDriver) return { error: 'Non possiedi questo pilota' }
 
-  const { data: takenDriver } = await supabase
+  const { data: takenDriver } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -286,7 +293,7 @@ export async function startMiniAuction(
 
   if (takenDriver) return { error: 'Questo pilota è già in una rosa' }
 
-  const { data: activeAuction } = await supabase
+  const { data: activeAuction } = await admin
     .from('auction_state')
     .select('id')
     .eq('league_id', leagueId)
@@ -295,7 +302,7 @@ export async function startMiniAuction(
 
   if (activeAuction) return { error: 'C\'è già un\'asta in corso' }
 
-  const { data: league } = await supabase
+  const { data: league } = await admin
     .from('leagues')
     .select('settings_json')
     .eq('id', leagueId)
@@ -304,7 +311,7 @@ export async function startMiniAuction(
   const timerSeconds = (league?.settings_json as { bid_timer_seconds?: number })?.bid_timer_seconds ?? 30
   const endsAt = new Date(Date.now() + timerSeconds * 1000).toISOString()
 
-  const { data: auction, error } = await supabase
+  const { data: auction, error } = await admin
     .from('auction_state')
     .insert({
       league_id: leagueId,
@@ -321,7 +328,7 @@ export async function startMiniAuction(
 
   if (error) return { error: error.message }
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: leagueId,
     user_id: user.id,
     action: 'mini_auction_started',
@@ -337,9 +344,9 @@ export async function startMiniAuction(
 }
 
 export async function getActiveAuction(leagueId: string) {
-  const supabase = await createClient()
+  const admin = createAdminClient()
 
-  const { data } = await supabase
+  const { data } = await admin
     .from('auction_state')
     .select(`
       *,
@@ -354,9 +361,9 @@ export async function getActiveAuction(leagueId: string) {
 }
 
 export async function getAuctionBids(auctionId: string) {
-  const supabase = await createClient()
+  const admin = createAdminClient()
 
-  const { data } = await supabase
+  const { data } = await admin
     .from('bids')
     .select('*, profile:profiles(display_name)')
     .eq('auction_id', auctionId)

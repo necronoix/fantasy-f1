@@ -161,6 +161,7 @@ export interface GpResultsData {
     penalty_positions?: number
   }>
   sprint_order?: Array<{ driver_id: string; position: number }>
+  safety_car?: boolean
 }
 
 export interface ScoringRules {

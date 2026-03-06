@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { validateTrade, getTradesMonthKey } from '@/lib/utils'
 
@@ -15,9 +15,10 @@ export async function proposeTrade(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
+  const admin = createAdminClient()
   const monthKey = getTradesMonthKey()
 
-  const { data: proposerMember } = await supabase
+  const { data: proposerMember } = await admin
     .from('league_members')
     .select('trades_used_month, trades_month_key, credits_left')
     .eq('league_id', leagueId)
@@ -34,7 +35,7 @@ export async function proposeTrade(
     return { error: 'Hai già effettuato uno scambio questo mese' }
   }
 
-  const { data: accepterMember } = await supabase
+  const { data: accepterMember } = await admin
     .from('league_members')
     .select('credits_left')
     .eq('league_id', leagueId)
@@ -51,7 +52,7 @@ export async function proposeTrade(
 
   if (!validation.valid) return { error: validation.error }
 
-  const { data: proposerDriver } = await supabase
+  const { data: proposerDriver } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -61,7 +62,7 @@ export async function proposeTrade(
 
   if (!proposerDriver) return { error: 'Non possiedi questo pilota' }
 
-  const { data: accepterDriver } = await supabase
+  const { data: accepterDriver } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -71,7 +72,7 @@ export async function proposeTrade(
 
   if (!accepterDriver) return { error: 'Il destinatario non possiede questo pilota' }
 
-  const { data: trade, error } = await supabase
+  const { data: trade, error } = await admin
     .from('trades')
     .insert({
       league_id: leagueId,
@@ -98,7 +99,9 @@ export async function acceptTrade(tradeId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: trade } = await supabase
+  const admin = createAdminClient()
+
+  const { data: trade } = await admin
     .from('trades')
     .select('*')
     .eq('id', tradeId)
@@ -114,31 +117,29 @@ export async function acceptTrade(tradeId: string) {
     credit_adjustment: number
   }
 
-  // Swap drivers: proposer gets accepter's driver, accepter gets proposer's driver
-  await supabase
+  await admin
     .from('rosters')
     .update({ user_id: trade.accepter_user_id, acquired_via: 'trade' })
     .eq('league_id', trade.league_id)
     .eq('user_id', trade.proposer_user_id)
     .eq('driver_id', offer.proposer_driver_id)
 
-  await supabase
+  await admin
     .from('rosters')
     .update({ user_id: trade.proposer_user_id, acquired_via: 'trade' })
     .eq('league_id', trade.league_id)
     .eq('user_id', trade.accepter_user_id)
     .eq('driver_id', offer.accepter_driver_id)
 
-  // Apply credit adjustment if any
   if (offer.credit_adjustment !== 0) {
-    const { data: proposerM } = await supabase
+    const { data: proposerM } = await admin
       .from('league_members')
       .select('credits_left, credits_spent')
       .eq('league_id', trade.league_id)
       .eq('user_id', trade.proposer_user_id)
       .single()
 
-    const { data: accepterM } = await supabase
+    const { data: accepterM } = await admin
       .from('league_members')
       .select('credits_left, credits_spent')
       .eq('league_id', trade.league_id)
@@ -146,7 +147,7 @@ export async function acceptTrade(tradeId: string) {
       .single()
 
     if (proposerM && accepterM) {
-      await supabase
+      await admin
         .from('league_members')
         .update({
           credits_left: proposerM.credits_left - offer.credit_adjustment,
@@ -155,7 +156,7 @@ export async function acceptTrade(tradeId: string) {
         .eq('league_id', trade.league_id)
         .eq('user_id', trade.proposer_user_id)
 
-      await supabase
+      await admin
         .from('league_members')
         .update({
           credits_left: accepterM.credits_left + offer.credit_adjustment,
@@ -166,15 +167,14 @@ export async function acceptTrade(tradeId: string) {
     }
   }
 
-  await supabase
+  await admin
     .from('trades')
     .update({ status: 'accepted', accepted_at: new Date().toISOString() })
     .eq('id', tradeId)
 
-  // Increment trade counter for both players
   const monthKey = getTradesMonthKey()
   for (const userId of [trade.proposer_user_id, trade.accepter_user_id]) {
-    const { data: m } = await supabase
+    const { data: m } = await admin
       .from('league_members')
       .select('trades_used_month, trades_month_key')
       .eq('league_id', trade.league_id)
@@ -183,7 +183,7 @@ export async function acceptTrade(tradeId: string) {
 
     if (m) {
       const currentUsed = m.trades_month_key === monthKey ? m.trades_used_month : 0
-      await supabase
+      await admin
         .from('league_members')
         .update({
           trades_used_month: currentUsed + 1,
@@ -194,7 +194,7 @@ export async function acceptTrade(tradeId: string) {
     }
   }
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: trade.league_id,
     user_id: user.id,
     action: 'trade_accepted',
@@ -211,7 +211,9 @@ export async function rejectTrade(tradeId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: trade } = await supabase
+  const admin = createAdminClient()
+
+  const { data: trade } = await admin
     .from('trades')
     .select('league_id, accepter_user_id, proposer_user_id')
     .eq('id', tradeId)
@@ -221,7 +223,7 @@ export async function rejectTrade(tradeId: string) {
   const participants = [trade.accepter_user_id, trade.proposer_user_id]
   if (!participants.includes(user.id)) return { error: 'Non autorizzato' }
 
-  await supabase
+  await admin
     .from('trades')
     .update({ status: 'rejected' })
     .eq('id', tradeId)
@@ -231,9 +233,9 @@ export async function rejectTrade(tradeId: string) {
 }
 
 export async function getLeagueTrades(leagueId: string) {
-  const supabase = await createClient()
+  const admin = createAdminClient()
 
-  const { data } = await supabase
+  const { data } = await admin
     .from('trades')
     .select(`
       *,
