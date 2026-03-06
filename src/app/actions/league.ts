@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
@@ -28,8 +28,10 @@ export async function createLeague(formData: FormData) {
   }
 
   const code = generateLeagueCode()
+  // Use admin client for writes to avoid RLS issues with server actions
+  const admin = createAdminClient()
 
-  const { data: league, error: leagueError } = await supabase
+  const { data: league, error: leagueError } = await admin
     .from('leagues')
     .insert({
       name: parsed.data.name,
@@ -53,7 +55,7 @@ export async function createLeague(formData: FormData) {
   if (leagueError) return { error: leagueError.message }
 
   // Add creator as admin member
-  await supabase.from('league_members').insert({
+  await admin.from('league_members').insert({
     league_id: league.id,
     user_id: user.id,
     role: 'admin',
@@ -65,14 +67,14 @@ export async function createLeague(formData: FormData) {
   })
 
   // Create default scoring rules
-  await supabase.from('scoring_rules').insert({
+  await admin.from('scoring_rules').insert({
     league_id: league.id,
     version: 1,
     rules_json: DEFAULT_SCORING_RULES,
     active: true,
   })
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: league.id,
     user_id: user.id,
     action: 'league_created',
@@ -91,7 +93,9 @@ export async function joinLeague(formData: FormData) {
   const code = (formData.get('code') as string)?.toUpperCase().trim()
   if (!code || code.length !== 6) return { error: 'Codice lega non valido' }
 
-  const { data: league, error: findError } = await supabase
+  // Use admin client to find league by code (user isn't a member yet, RLS would block SELECT)
+  const admin = createAdminClient()
+  const { data: league, error: findError } = await admin
     .from('leagues')
     .select('*')
     .eq('code', code)
@@ -100,7 +104,7 @@ export async function joinLeague(formData: FormData) {
   if (findError || !league) return { error: 'Lega non trovata' }
 
   // Already a member?
-  const { data: existing } = await supabase
+  const { data: existing } = await admin
     .from('league_members')
     .select('id')
     .eq('league_id', league.id)
@@ -110,7 +114,7 @@ export async function joinLeague(formData: FormData) {
   if (existing) redirect(`/league/${league.id}`)
 
   // Check max players
-  const { count } = await supabase
+  const { count } = await admin
     .from('league_members')
     .select('*', { count: 'exact', head: true })
     .eq('league_id', league.id)
@@ -119,7 +123,7 @@ export async function joinLeague(formData: FormData) {
     return { error: 'La lega è al completo' }
   }
 
-  const { error: joinError } = await supabase.from('league_members').insert({
+  const { error: joinError } = await admin.from('league_members').insert({
     league_id: league.id,
     user_id: user.id,
     role: 'player',
@@ -132,7 +136,7 @@ export async function joinLeague(formData: FormData) {
 
   if (joinError) return { error: joinError.message }
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: league.id,
     user_id: user.id,
     action: 'member_joined',

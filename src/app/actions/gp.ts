@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { computeGpScore } from '@/lib/scoring'
 import type { GpResultsData, GpPredictions, ScoringRulesData } from '@/lib/types'
@@ -15,7 +15,9 @@ export async function setCaptainAndPredictions(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: ownedDriver } = await supabase
+  const admin = createAdminClient()
+
+  const { data: ownedDriver } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -25,7 +27,7 @@ export async function setCaptainAndPredictions(
 
   if (!ownedDriver) return { error: 'Non possiedi questo pilota' }
 
-  const { data: gp } = await supabase
+  const { data: gp } = await admin
     .from('grands_prix')
     .select('date, qualifying_date, status')
     .eq('id', gpId)
@@ -34,7 +36,7 @@ export async function setCaptainAndPredictions(
   if (!gp) return { error: 'GP non trovato' }
   if (gp.status === 'completed') return { error: 'Il GP è già terminato' }
 
-  const { error } = await supabase
+  const { error } = await admin
     .from('gp_selections')
     .upsert(
       {
@@ -63,7 +65,9 @@ export async function submitGpResults(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
-  const { data: member } = await supabase
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
     .from('league_members')
     .select('role')
     .eq('league_id', leagueId)
@@ -72,7 +76,7 @@ export async function submitGpResults(
 
   if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può inserire i risultati' }
 
-  const { error: resultsError } = await supabase
+  const { error: resultsError } = await admin
     .from('gp_results')
     .upsert(
       {
@@ -87,16 +91,15 @@ export async function submitGpResults(
 
   if (resultsError) return { error: resultsError.message }
 
-  await supabase
+  await admin
     .from('grands_prix')
     .update({ status: 'completed' })
     .eq('id', gpId)
 
-  // Compute scores for all members
-  const computeResult = await computeAndSaveGpScores(leagueId, gpId, results, supabase)
+  const computeResult = await computeAndSaveGpScores(leagueId, gpId, results)
   if (computeResult?.error) return { error: computeResult.error }
 
-  await supabase.from('audit_log').insert({
+  await admin.from('audit_log').insert({
     league_id: leagueId,
     user_id: user.id,
     action: 'gp_results_submitted',
@@ -108,9 +111,10 @@ export async function submitGpResults(
   return { success: true }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function computeAndSaveGpScores(leagueId: string, gpId: string, results: GpResultsData, supabase: any) {
-  const { data: scoringRules } = await supabase
+async function computeAndSaveGpScores(leagueId: string, gpId: string, results: GpResultsData) {
+  const admin = createAdminClient()
+
+  const { data: scoringRules } = await admin
     .from('scoring_rules')
     .select('rules_json')
     .eq('league_id', leagueId)
@@ -121,7 +125,7 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
 
   const rules = scoringRules.rules_json as ScoringRulesData
 
-  const { data: members } = await supabase
+  const { data: members } = await admin
     .from('league_members')
     .select('user_id')
     .eq('league_id', leagueId)
@@ -129,13 +133,13 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
   if (!members) return
 
   for (const member of members) {
-    const { data: roster } = await supabase
+    const { data: roster } = await admin
       .from('rosters')
       .select('driver_id, driver:drivers(name)')
       .eq('league_id', leagueId)
       .eq('user_id', member.user_id)
 
-    const { data: selection } = await supabase
+    const { data: selection } = await admin
       .from('gp_selections')
       .select('captain_driver_id, predictions_json')
       .eq('league_id', leagueId)
@@ -151,13 +155,12 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
 
     const breakdown = computeGpScore(rosterDriverIds, captainId, results, rules, predictions)
 
-    // Fill in driver names from joined data
     breakdown.drivers = breakdown.drivers.map((d, i) => ({
       ...d,
       driver_name: (roster[i]?.driver as { name?: string })?.name ?? d.driver_id,
     }))
 
-    await supabase
+    await admin
       .from('gp_scores')
       .upsert(
         {
@@ -177,21 +180,23 @@ export async function getGpWithSelection(leagueId: string, gpId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
+  const admin = createAdminClient()
+
   const [gpRes, selectionRes, rosterRes, scoresRes] = await Promise.all([
-    supabase.from('grands_prix').select('*').eq('id', gpId).single(),
-    supabase
+    admin.from('grands_prix').select('*').eq('id', gpId).single(),
+    admin
       .from('gp_selections')
       .select('*')
       .eq('league_id', leagueId)
       .eq('gp_id', gpId)
       .eq('user_id', user.id)
       .maybeSingle(),
-    supabase
+    admin
       .from('rosters')
       .select('*, driver:drivers(*, team:teams(*))')
       .eq('league_id', leagueId)
       .eq('user_id', user.id),
-    supabase
+    admin
       .from('gp_scores')
       .select('*, profile:profiles(display_name)')
       .eq('league_id', leagueId)
@@ -208,15 +213,15 @@ export async function getGpWithSelection(leagueId: string, gpId: string) {
 }
 
 export async function getStandings(leagueId: string) {
-  const supabase = await createClient()
+  const admin = createAdminClient()
 
-  const { data: scores } = await supabase
+  const { data: scores } = await admin
     .from('gp_scores')
     .select('*, profile:profiles(display_name), grand_prix:grands_prix(name, round, date)')
     .eq('league_id', leagueId)
     .order('total_points', { ascending: false })
 
-  const { data: members } = await supabase
+  const { data: members } = await admin
     .from('league_members')
     .select('user_id, credits_left, profile:profiles(display_name)')
     .eq('league_id', leagueId)
