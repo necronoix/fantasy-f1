@@ -10,7 +10,7 @@ export default async function DashboardPage() {
   const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const myLeagues = await getMyLeagues()
+  const myLeagues = user ? await getMyLeagues(user.id) : []
 
   // Upcoming GPs
   const { data: nextGps } = await supabase

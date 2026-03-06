@@ -175,11 +175,7 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
   }
 }
 
-export async function getGpWithSelection(leagueId: string, gpId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
+export async function getGpWithSelection(leagueId: string, gpId: string, userId: string) {
   const admin = createAdminClient()
 
   const [gpRes, selectionRes, rosterRes, scoresRes] = await Promise.all([
@@ -189,13 +185,13 @@ export async function getGpWithSelection(leagueId: string, gpId: string) {
       .select('*')
       .eq('league_id', leagueId)
       .eq('gp_id', gpId)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle(),
     admin
       .from('rosters')
       .select('*, driver:drivers(*, team:teams(*))')
       .eq('league_id', leagueId)
-      .eq('user_id', user.id),
+      .eq('user_id', userId),
     admin
       .from('gp_scores')
       .select('*, profile:profiles(display_name)')

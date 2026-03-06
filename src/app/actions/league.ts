@@ -147,16 +147,12 @@ export async function joinLeague(formData: FormData) {
   redirect(`/league/${league.id}`)
 }
 
-export async function getMyLeagues() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
-
+export async function getMyLeagues(userId: string) {
   const admin = createAdminClient()
   const { data } = await admin
     .from('league_members')
     .select('*, league:leagues(*)')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('joined_at', { ascending: false })
 
   return data ?? []

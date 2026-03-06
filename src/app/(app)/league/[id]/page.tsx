@@ -1,10 +1,9 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { getLeagueDetails } from '@/app/actions/league'
 import { LeagueNav } from '@/components/ui/LeagueNav'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { notFound } from 'next/navigation'
-import { Copy, Users } from 'lucide-react'
+import { Users } from 'lucide-react'
 import { CopyCode } from '@/components/league/CopyCode'
 
 interface Props { params: Promise<{ id: string }> }
@@ -16,24 +15,29 @@ export default async function LeaguePage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const league = await getLeagueDetails(id)
+  // Fetch league + members directly with admin client (avoids double auth call)
+  const { data: league } = await admin
+    .from('leagues')
+    .select(`*, league_members(*, profile:profiles(*))`)
+    .eq('id', id)
+    .single()
+
   if (!league) notFound()
 
-  const myMembership = (league.league_members as Array<Record<string, unknown>>)
-    .find((m) => m.user_id === user.id)
+  const members = (league.league_members ?? []) as Array<Record<string, unknown>>
+  const myMembership = members.find((m) => m.user_id === user.id)
   if (!myMembership) notFound()
 
   const isAdmin = myMembership.role === 'admin'
-  const members = league.league_members as Array<Record<string, unknown>>
 
-  // Next GP
-  const { data: nextGp } = await supabase
+  // Next GP (public table)
+  const { data: nextGp } = await admin
     .from('grands_prix')
     .select('*')
     .eq('status', 'upcoming')
     .order('date', { ascending: true })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   return (
     <div className="space-y-5">

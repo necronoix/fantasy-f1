@@ -17,7 +17,7 @@ export default async function GpPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: myMembership } = await supabase
+  const { data: myMembership } = await admin
     .from('league_members')
     .select('role')
     .eq('league_id', id)
@@ -25,15 +25,15 @@ export default async function GpPage({ params }: Props) {
     .single()
   if (!myMembership) notFound()
 
-  const data = await getGpWithSelection(id, gpId)
+  const data = await getGpWithSelection(id, gpId, user.id)
   if (!data?.gp) notFound()
 
   const { gp, selection, roster, scores } = data
   const isAdmin = myMembership.role === 'admin'
   const isCompleted = gp.status === 'completed'
 
-  // Get all drivers for predictions
-  const { data: allDrivers } = await supabase
+  // Get all drivers for predictions (admin client, bypasses RLS)
+  const { data: allDrivers } = await admin
     .from('drivers')
     .select('*, team:teams(*)')
     .eq('season_id', 2026)
