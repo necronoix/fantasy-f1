@@ -346,16 +346,29 @@ export async function startMiniAuction(
 export async function getActiveAuction(leagueId: string) {
   const admin = createAdminClient()
 
-  const { data } = await admin
+  // Note: auction_state has two FKs to drivers (target_driver_id and drop_driver_id),
+  // so we MUST use the FK hint syntax !column to disambiguate (avoids HTTP 300)
+  const { data, error } = await admin
     .from('auction_state')
-    .select(`
-      *,
-      target_driver:drivers(*,team:teams(*)),
-      leader:profiles(*)
-    `)
+    .select(`*, target_driver:drivers!target_driver_id(*, team:teams(*))`)
     .eq('league_id', leagueId)
     .eq('status', 'active')
     .maybeSingle()
+
+  if (error) {
+    console.error('getActiveAuction error:', error)
+    return null
+  }
+
+  // Separately fetch leader display name if needed
+  if (data?.leader_user_id) {
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('display_name')
+      .eq('id', data.leader_user_id)
+      .single()
+    if (profile) (data as Record<string, unknown>).leader = profile
+  }
 
   return data
 }
