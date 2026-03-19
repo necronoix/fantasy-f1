@@ -5,56 +5,311 @@
 :root {
   --background: #15151E;
   --foreground: #FFFFFF;
+  --f1-red: #E8002D;
+  --f1-red-dark: #B30022;
+  --f1-gold: #FFD700;
+  --f1-silver: #C0C0C0;
+  --f1-bronze: #CD7F32;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-image: url('data:image/svg+xml;utf8,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(255,255,255,0.01)" stroke-width="1"/></pattern></defs><rect width="100" height="100" fill="%23151519"/><rect width="100" height="100" fill="url(%23grid)"/></svg>');
 }
 
 /* F1 Red gradient header */
 .f1-header {
   background: linear-gradient(135deg, #E8002D 0%, #B30022 100%);
+  position: relative;
+  overflow: hidden;
 }
 
-/* Card styles */
+.f1-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.05) 2px,
+    rgba(255, 255, 255, 0.05) 4px
+  );
+  pointer-events: none;
+}
+
+/* Modern glass-morphism card styles */
 .f1-card {
-  @apply bg-f1-black-light border border-f1-gray-dark rounded-xl p-4;
+  @apply bg-f1-black-light/40 backdrop-blur-md border border-white/10 rounded-2xl p-4;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
-/* Bid animation */
+.f1-card:hover {
+  @apply border-f1-red/30 bg-f1-black-light/60;
+  box-shadow: 0 8px 32px rgba(232, 0, 45, 0.15);
+  transform: translateY(-2px);
+}
+
+.f1-card-subtle {
+  @apply bg-f1-gray-dark/40 backdrop-blur-sm border border-white/5 rounded-xl;
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.f1-card-subtle:hover {
+  @apply bg-f1-gray-dark/60 border-white/10;
+}
+
+/* Bid animation with glow */
 @keyframes bid-flash {
-  0% { background-color: rgba(232, 0, 45, 0.3); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: rgba(232, 0, 45, 0.4);
+    box-shadow: 0 0 15px rgba(232, 0, 45, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(232, 0, 45, 0.3);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 rgba(232, 0, 45, 0);
+  }
 }
 
 .bid-flash {
-  animation: bid-flash 0.6s ease-out;
+  animation: bid-flash 0.8s cubic-bezier(0.4, 0.0, 1, 1);
 }
 
-/* Scrollbar */
+/* Elegant scrollbar for dark theme */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #15151E;
+  background: rgba(255, 255, 255, 0.02);
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #3A3A4A;
-  border-radius: 3px;
+  background: linear-gradient(180deg, #E8002D 0%, #B30022 100%);
+  border-radius: 4px;
+  border: 2px solid rgba(21, 21, 30, 0.5);
+  transition: background 0.3s ease;
 }
+
 ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #FFB3D9 0%, #E8002D 100%);
+  box-shadow: 0 0 10px rgba(232, 0, 45, 0.5);
+}
+
+::-webkit-scrollbar-thumb:active {
   background: #E8002D;
 }
 
-/* Timer countdown bar */
-.timer-bar {
-  transition: width linear;
+/* Firefox scrollbar */
+* {
+  scrollbar-color: #E8002D rgba(255, 255, 255, 0.02);
+  scrollbar-width: thin;
 }
 
-/* Position badges */
-.pos-1 { @apply text-yellow-400; }
-.pos-2 { @apply text-gray-300; }
-.pos-3 { @apply text-amber-600; }
+/* Timer countdown bar with gradient */
+.timer-bar {
+  transition: width linear;
+  background: linear-gradient(90deg, #FFD700 0%, #E8002D 100%);
+  box-shadow: 0 0 10px rgba(232, 0, 45, 0.4);
+}
+
+/* Position badges with podium colors */
+.pos-1 {
+  @apply text-yellow-400 font-black;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.pos-2 {
+  @apply text-gray-300 font-black;
+  text-shadow: 0 0 10px rgba(192, 192, 192, 0.3);
+}
+
+.pos-3 {
+  @apply text-amber-600 font-black;
+  text-shadow: 0 0 10px rgba(205, 127, 50, 0.4);
+}
+
+/* Position indicator bars */
+.position-bar-1 {
+  @apply bg-yellow-400/20 border-l-4 border-l-yellow-400;
+}
+
+.position-bar-2 {
+  @apply bg-gray-400/10 border-l-4 border-l-gray-400;
+}
+
+.position-bar-3 {
+  @apply bg-amber-700/15 border-l-4 border-l-amber-700;
+}
+
+/* F1 diagonal stripe accent */
+.f1-stripe {
+  position: relative;
+  overflow: hidden;
+}
+
+.f1-stripe::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(232, 0, 45, 0.1) 50%, transparent 70%);
+  transform: skewX(-20deg);
+  transition: left 0.3s ease;
+  pointer-events: none;
+}
+
+.f1-stripe:hover::before {
+  left: 100%;
+}
+
+/* Animated red accent stripe */
+.f1-accent-stripe {
+  position: relative;
+}
+
+.f1-accent-stripe::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #E8002D, transparent);
+  animation: stripe-animate 3s linear infinite;
+  background-size: 200% 100%;
+}
+
+/* Standing row with team color bar */
+.standing-row {
+  @apply transition-all duration-300;
+  position: relative;
+}
+
+.standing-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 4px 0 0 4px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.standing-row:hover::before {
+  opacity: 0.8;
+}
+
+/* Podium effect for top 3 */
+.podium-1, .podium-2, .podium-3 {
+  position: relative;
+}
+
+.podium-1 {
+  @apply bg-gradient-to-br from-yellow-500/10 to-transparent;
+  border-left: 4px solid var(--f1-gold);
+}
+
+.podium-2 {
+  @apply bg-gradient-to-br from-gray-400/10 to-transparent;
+  border-left: 4px solid #C0C0C0;
+}
+
+.podium-3 {
+  @apply bg-gradient-to-br from-amber-700/10 to-transparent;
+  border-left: 4px solid #CD7F32;
+}
+
+/* Score display with breakdown bars */
+.score-breakdown {
+  @apply flex items-center gap-2;
+}
+
+.score-bar {
+  @apply h-2 rounded-full;
+  background: linear-gradient(90deg, #FFD700 0%, #E8002D 100%);
+}
+
+/* Trophy/medal styles */
+.medal-gold { color: #FFD700; }
+.medal-silver { color: #C0C0C0; }
+.medal-bronze { color: #CD7F32; }
+
+/* Button glow effect */
+.btn-glow {
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.btn-glow:hover {
+  box-shadow: 0 0 20px rgba(232, 0, 45, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-glow:active {
+  transform: translateY(0);
+}
+
+/* Loading spinner F1 red */
+.spinner-f1 {
+  border-color: rgba(232, 0, 45, 0.2);
+  border-top-color: #E8002D;
+}
+
+/* F1 broadcast table styling */
+.f1-table {
+  @apply w-full text-xs;
+}
+
+.f1-table thead tr {
+  @apply border-b-2 border-f1-red/30;
+  background: linear-gradient(90deg, rgba(232, 0, 45, 0.05) 0%, transparent 100%);
+}
+
+.f1-table tbody tr {
+  @apply border-b border-f1-gray-dark/50 transition-all duration-200;
+}
+
+.f1-table tbody tr:hover {
+  @apply bg-f1-gray-dark/30;
+}
+
+.f1-table tbody tr:nth-child(even) {
+  @apply bg-f1-black-light/30;
+}
+
+/* Countdown timer pulse */
+.countdown-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Badge accents */
+.badge-accent {
+  @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold;
+  background: rgba(232, 0, 45, 0.15);
+  border: 1px solid rgba(232, 0, 45, 0.3);
+  color: #FFB3D9;
+}
+
+/* Smooth transitions for interactive elements */
+a, button, input, select {
+  @apply transition-colors duration-200;
+}

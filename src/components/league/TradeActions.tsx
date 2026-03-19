@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/Button'
 import { useTransition } from 'react'
 import toast from 'react-hot-toast'
 
-export function TradeActions({ tradeId }: { tradeId: string }) {
+interface Props {
+  tradeId: string
+  isProposer?: boolean
+}
+
+export function TradeActions({ tradeId, isProposer }: Props) {
   const [pending, startTransition] = useTransition()
 
   function handleAccept() {
@@ -20,12 +25,22 @@ export function TradeActions({ tradeId }: { tradeId: string }) {
     startTransition(async () => {
       const result = await rejectTrade(tradeId)
       if (result?.error) toast.error(result.error)
-      else toast.success('Scambio rifiutato')
+      else toast.success(isProposer ? 'Proposta ritirata' : 'Scambio rifiutato')
     })
   }
 
+  if (isProposer) {
+    return (
+      <div className="mt-3 pt-3 border-t border-f1-gray-dark/50">
+        <Button onClick={handleReject} loading={pending} variant="ghost" size="sm" className="w-full text-f1-gray hover:text-red-400">
+          Ritira proposta
+        </Button>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex gap-2 mt-3 pt-3 border-t border-f1-gray-dark">
+    <div className="flex gap-2 mt-3 pt-3 border-t border-yellow-500/30">
       <Button onClick={handleAccept} loading={pending} size="sm" className="flex-1">
         Accetta
       </Button>

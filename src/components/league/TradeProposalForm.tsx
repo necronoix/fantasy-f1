@@ -4,6 +4,7 @@ import { proposeTrade } from '@/app/actions/trades'
 import { Button } from '@/components/ui/Button'
 import { useState, useTransition } from 'react'
 import toast from 'react-hot-toast'
+import { ArrowLeftRight } from 'lucide-react'
 
 interface Props {
   leagueId: string
@@ -22,18 +23,45 @@ export function TradeProposalForm({ leagueId, myRoster, otherMembers, othersRost
 
   const theirRoster = othersRosters.filter(r => String(r.user_id) === targetUser)
 
+  const selectedMyDriver = myRoster.find(r => {
+    const d = r.driver as Record<string, unknown>
+    return String(d?.id ?? '') === myDriver
+  })
+  const selectedTheirDriver = theirRoster.find(r => {
+    const d = r.driver as Record<string, unknown>
+    return String(d?.id ?? '') === theirDriver
+  })
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!targetUser || !myDriver || !theirDriver) return toast.error('Completa tutti i campi')
+    if (myDriver === theirDriver) return toast.error('Non puoi scambiare lo stesso pilota')
+
     startTransition(async () => {
       const result = await proposeTrade(leagueId, targetUser, myDriver, theirDriver, credits)
       if (result?.error) toast.error(result.error)
-      else toast.success('Proposta inviata!')
+      else {
+        toast.success('Proposta inviata!')
+        // Reset form
+        setTargetUser('')
+        setMyDriver('')
+        setTheirDriver('')
+        setCredits(0)
+      }
     })
   }
 
+  function getDriverLabel(entry: Record<string, unknown>) {
+    const driver = entry.driver as Record<string, unknown>
+    const team = driver?.team as Record<string, unknown>
+    const name = String(driver?.name ?? driver?.short_name ?? '')
+    const teamName = String(team?.name ?? '')
+    return teamName ? `${name} (${teamName})` : name
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4 px-4 pb-4">
+      {/* Target user */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">Controparte</label>
         <select
@@ -53,20 +81,21 @@ export function TradeProposalForm({ leagueId, myRoster, otherMembers, othersRost
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {/* Driver selectors */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">Offro (mio pilota)</label>
+          <label className="text-xs font-semibold text-f1-red uppercase tracking-wider">Offro (mio pilota)</label>
           <select
             value={myDriver}
             onChange={(e) => setMyDriver(e.target.value)}
-            className="w-full bg-f1-gray-dark border border-f1-gray-mid rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-f1-red"
+            className="w-full bg-f1-gray-dark border border-f1-red/30 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-f1-red"
           >
-            <option value="">— Scegli —</option>
+            <option value="">— Scegli pilota —</option>
             {myRoster.map((entry) => {
               const driver = entry.driver as Record<string, unknown>
               return (
                 <option key={String(driver?.id ?? '')} value={String(driver?.id ?? '')}>
-                  {String(driver?.name ?? '')}
+                  {getDriverLabel(entry)}
                 </option>
               )
             })}
@@ -74,19 +103,19 @@ export function TradeProposalForm({ leagueId, myRoster, otherMembers, othersRost
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">Ricevo (suo pilota)</label>
+          <label className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Ricevo (suo pilota)</label>
           <select
             value={theirDriver}
             onChange={(e) => setTheirDriver(e.target.value)}
             disabled={!targetUser}
-            className="w-full bg-f1-gray-dark border border-f1-gray-mid rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-f1-red disabled:opacity-50"
+            className="w-full bg-f1-gray-dark border border-emerald-500/30 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
           >
-            <option value="">— Scegli —</option>
+            <option value="">{targetUser ? '— Scegli pilota —' : '— Seleziona controparte —'}</option>
             {theirRoster.map((entry) => {
               const driver = entry.driver as Record<string, unknown>
               return (
                 <option key={String(driver?.id ?? '')} value={String(driver?.id ?? '')}>
-                  {String(driver?.name ?? '')}
+                  {getDriverLabel(entry)}
                 </option>
               )
             })}
@@ -94,9 +123,25 @@ export function TradeProposalForm({ leagueId, myRoster, otherMembers, othersRost
         </div>
       </div>
 
+      {/* Preview */}
+      {selectedMyDriver && selectedTheirDriver && (
+        <div className="flex items-center gap-3 bg-f1-black-light/60 rounded-xl p-3 border border-white/10">
+          <div className="flex-1 text-center">
+            <p className="text-f1-gray text-[10px] uppercase tracking-wider font-semibold">Dai</p>
+            <p className="text-f1-red font-bold text-sm">{getDriverLabel(selectedMyDriver)}</p>
+          </div>
+          <ArrowLeftRight className="w-5 h-5 text-f1-gray flex-shrink-0" />
+          <div className="flex-1 text-center">
+            <p className="text-f1-gray text-[10px] uppercase tracking-wider font-semibold">Ricevi</p>
+            <p className="text-emerald-400 font-bold text-sm">{getDriverLabel(selectedTheirDriver)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Credit adjustment */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-f1-gray-light uppercase tracking-wider">
-          Conguaglio crediti (opzionale) — max {myCreditsLeft}
+          Conguaglio crediti (opzionale) — disponibili: {myCreditsLeft}
         </label>
         <input
           type="number"
@@ -107,10 +152,14 @@ export function TradeProposalForm({ leagueId, myRoster, otherMembers, othersRost
           className="w-full bg-f1-gray-dark border border-f1-gray-mid rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-f1-red"
           placeholder="0 = nessun conguaglio"
         />
-        {credits > 0 && <p className="text-yellow-400 text-xs">Darai {credits} crediti extra alla controparte</p>}
+        {credits > 0 && (
+          <p className="text-yellow-400 text-xs">
+            Darai {credits} crediti extra alla controparte insieme al pilota
+          </p>
+        )}
       </div>
 
-      <Button type="submit" loading={pending} className="w-full">
+      <Button type="submit" loading={pending} className="w-full" disabled={!targetUser || !myDriver || !theirDriver}>
         Proponi scambio
       </Button>
     </form>

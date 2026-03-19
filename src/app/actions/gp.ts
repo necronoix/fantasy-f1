@@ -2,14 +2,16 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { computeGpScore } from '@/lib/scoring'
+import { computeGpScore, computeTeamScore } from '@/lib/scoring'
+import { isPredictionLocked } from '@/lib/utils'
 import type { GpResultsData, GpPredictions, ScoringRulesData } from '@/lib/types'
 
 export async function setCaptainAndPredictions(
   leagueId: string,
   gpId: string,
   captainDriverId: string,
-  predictions: GpPredictions
+  predictions: GpPredictions,
+  benchDriverId?: string
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -29,12 +31,14 @@ export async function setCaptainAndPredictions(
 
   const { data: gp } = await admin
     .from('grands_prix')
-    .select('date, qualifying_date, status')
+    .select('date, qualifying_date, qualifying_datetime, status')
     .eq('id', gpId)
     .single()
 
   if (!gp) return { error: 'GP non trovato' }
-  if (gp.status === 'completed') return { error: 'Il GP è già terminato' }
+  if (isPredictionLocked(gp.qualifying_datetime)) {
+    return { error: 'Selezioni bloccate — meno di 1 ora alla qualifica Q1' }
+  }
 
   const { error } = await admin
     .from('gp_selections')
@@ -44,6 +48,7 @@ export async function setCaptainAndPredictions(
         gp_id: gpId,
         user_id: user.id,
         captain_driver_id: captainDriverId,
+        bench_driver_id: benchDriverId ?? null,
         predictions_json: predictions,
         updated_at: new Date().toISOString(),
       },
@@ -135,13 +140,13 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
   for (const member of members) {
     const { data: roster } = await admin
       .from('rosters')
-      .select('driver_id, driver:drivers(name)')
+      .select('driver_id, team_id, driver:drivers(name), team:teams(name)')
       .eq('league_id', leagueId)
       .eq('user_id', member.user_id)
 
     const { data: selection } = await admin
       .from('gp_selections')
-      .select('captain_driver_id, predictions_json')
+      .select('captain_driver_id, bench_driver_id, predictions_json')
       .eq('league_id', leagueId)
       .eq('gp_id', gpId)
       .eq('user_id', member.user_id)
@@ -149,16 +154,48 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
 
     if (!roster || roster.length === 0) continue
 
-    const rosterDriverIds = roster.map((r: { driver_id: string }) => r.driver_id)
+    const rosterDriverIds = roster.filter((r: { driver_id: string }) => r.driver_id != null).map((r: { driver_id: string }) => r.driver_id)
     const captainId = selection?.captain_driver_id ?? rosterDriverIds[0]
+    const benchId = selection?.bench_driver_id ?? undefined
     const predictions: GpPredictions = selection?.predictions_json ?? {}
 
-    const breakdown = computeGpScore(rosterDriverIds, captainId, results, rules, predictions)
+    const breakdown = computeGpScore(rosterDriverIds, captainId, results, rules, predictions, benchId)
 
-    breakdown.drivers = breakdown.drivers.map((d, i) => ({
+    // Map driver names from roster data
+    const driverNameMap = new Map<string, string>()
+    for (const r of roster) {
+      const dId = (r as { driver_id: string }).driver_id
+      const dName = (r as { driver: { name?: string } }).driver?.name
+      if (dId && dName) driverNameMap.set(dId, dName)
+    }
+    breakdown.drivers = breakdown.drivers.map((d) => ({
       ...d,
-      driver_name: (roster[i]?.driver as { name?: string })?.name ?? d.driver_id,
+      driver_name: driverNameMap.get(d.driver_id) ?? d.driver_id,
     }))
+
+    // Compute team score if user owns an F1 team
+    let teamScore = 0
+    let teamName: string | undefined
+    const teamEntry = roster.find((r: { team_id: string | null }) => r.team_id != null)
+    if (teamEntry) {
+      const teamId = (teamEntry as { team_id: string }).team_id
+      teamName = (teamEntry as { team: { name?: string } }).team?.name
+
+      // Get the two drivers belonging to this team
+      const { data: teamDrivers } = await admin
+        .from('drivers')
+        .select('id')
+        .eq('team_id', teamId)
+
+      if (teamDrivers && teamDrivers.length >= 2) {
+        const teamDriverIds = teamDrivers.map((d: { id: string }) => d.id)
+        teamScore = computeTeamScore(teamId, teamDriverIds, results, rules)
+      }
+    }
+
+    breakdown.team_pts = teamScore
+    breakdown.team_name = teamName
+    breakdown.total += teamScore
 
     await admin
       .from('gp_scores')

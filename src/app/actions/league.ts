@@ -45,7 +45,7 @@ export async function createLeague(formData: FormData) {
         timezone: parsed.data.timezone,
         qualifying_lock_hours: 2,
         race_lock_hours: 1,
-        bid_timer_seconds: 10,
+        bid_timer_seconds: 20,
         trade_limit_per_month: 1,
       },
     })

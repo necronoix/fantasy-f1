@@ -3,18 +3,21 @@
 import { placeBid, closeAuction } from '@/app/actions/auction'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { DriverCard } from '@/components/f1/DriverCard'
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState, useTransition, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { getTimerSeconds } from '@/lib/utils'
 import { validateAuctionBid } from '@/lib/scoring'
 import { Gavel, Clock, Crown, TrendingUp } from 'lucide-react'
+import { DRIVER_TEAMS, TEAM_COLORS } from '@/components/f1/f1-data'
 
 interface Props {
   leagueId: string
   auction: Record<string, unknown>
   initialBids: Record<string, unknown>[]
   userId: string
+  userDisplayName: string
   userCreditsLeft: number
   userRosterCount: number
   isAdmin: boolean
@@ -25,6 +28,7 @@ export function AuctionRoom({
   auction: initialAuction,
   initialBids,
   userId,
+  userDisplayName,
   userCreditsLeft,
   userRosterCount,
   isAdmin,
@@ -43,6 +47,13 @@ export function AuctionRoom({
   const isLeading = leaderUserId === userId
   const auctionId = String(auction.id)
   const isExpired = timeLeft <= 0
+
+  // Get driver short name for helmet
+  const driverShortName = String((driverObj as Record<string, unknown>)?.short_name ?? '')
+  const driverTeamId = driverShortName ? DRIVER_TEAMS[driverShortName] : null
+  const teamColor = driverTeamId ? TEAM_COLORS[driverTeamId] : '#888'
+  const driverName = String((driverObj as Record<string, unknown>)?.name ?? '')
+  const driverNumber = String((driverObj as Record<string, unknown>)?.number ?? '?')
 
   // Validation
   const validation = validateAuctionBid(bidAmount, currentBid, userCreditsLeft, userRosterCount, 4, 200)
@@ -72,7 +83,12 @@ export function AuctionRoom({
         table: 'bids',
         filter: `auction_id=eq.${auctionId}`,
       }, (payload) => {
-        setBids(prev => [payload.new as Record<string, unknown>, ...prev.slice(0, 19)])
+        // Attach profile display_name for current user's bids (realtime payload lacks join data)
+        const newBid = payload.new as Record<string, unknown>
+        if (newBid.user_id === userId) {
+          newBid.profile = { display_name: userDisplayName }
+        }
+        setBids(prev => [newBid, ...prev.slice(0, 19)])
         // Flash effect notification
         if (payload.new.user_id !== userId) {
           toast(`Nuova offerta: ${payload.new.amount} cr`, { icon: '💰' })
@@ -109,20 +125,19 @@ export function AuctionRoom({
     })
   }, [auctionId])
 
-  // Quick bid amounts
-  const quickBids = [
-    currentBid + 1,
-    currentBid + 5,
-    currentBid + 10,
-    currentBid + 20,
-  ].filter(b => b <= userCreditsLeft)
-
-  const timerPct = Math.min(100, (timeLeft / 10) * 100)
-  const timerColor = timeLeft <= 5 ? 'bg-red-500' : timeLeft <= 10 ? 'bg-yellow-500' : 'bg-green-500'
+  const timerPct = Math.min(100, (timeLeft / 20) * 100)
+  const timerColor = timeLeft <= 8 ? 'bg-red-500' : timeLeft <= 15 ? 'bg-yellow-500' : 'bg-green-500'
 
   if (auction.status === 'closed') {
     return (
-      <div className="bg-f1-black-light border border-f1-gray-dark rounded-xl p-6 text-center">
+      <div className="relative overflow-hidden rounded-2xl p-6 border backdrop-blur-md text-center" style={{
+        background: `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)`,
+        borderColor: `${teamColor}40`,
+        boxShadow: `0 0 15px rgba(232,0,45,0.2)`
+      }}>
+        {/* Top color stripe */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-white/20 to-transparent" style={{ backgroundColor: teamColor }} />
+
         <div className="text-5xl mb-3">🏁</div>
         <p className="text-xl font-black text-white mb-1">Asta chiusa!</p>
         {auction.leader_user_id ? (
@@ -138,174 +153,165 @@ export function AuctionRoom({
 
   return (
     <div className="space-y-4">
-      {/* Driver card */}
-      <div className="bg-gradient-to-br from-f1-red/20 to-f1-black-light border border-f1-red/40 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Gavel className="w-5 h-5 text-f1-red" />
-            <span className="text-xs font-bold uppercase tracking-widest text-f1-red">
-              {String(auction.type) === 'mini' ? 'Mini-Asta' : 'Asta'} in corso
-            </span>
-          </div>
-          <Badge variant={isExpired ? 'red' : 'green'} className="animate-pulse-red">
-            LIVE
-          </Badge>
-        </div>
+      {/* Driver card - Main auction display */}
+      <div className="relative overflow-hidden rounded-2xl border backdrop-blur-md" style={{
+        background: `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)`,
+        borderColor: `${teamColor}40`,
+        boxShadow: `inset 0 0 20px ${teamColor}10, 0 0 15px ${teamColor}15`
+      }}>
+        {/* Top color stripe - 3px thick */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-white/30 to-transparent" style={{ backgroundColor: teamColor, height: '3px' }} />
 
-        {driverObj && (
-          <div className="flex items-center gap-4 mb-5">
-            {/* Helmet */}
-            <div className="w-16 h-16 rounded-xl overflow-hidden bg-f1-black-light flex items-center justify-center flex-shrink-0 border border-f1-gray-dark">
-              {String((driverObj as Record<string, unknown>).helmet_url ?? '') ? (
-                <img
-                  src={String((driverObj as Record<string, unknown>).helmet_url)}
-                  alt={String((driverObj as Record<string, unknown>).short_name ?? '')}
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <div
-                  className="w-full h-full flex items-center justify-center text-xl font-black"
-                  style={{ color: String(((driverObj as Record<string, unknown>).team as Record<string, unknown>)?.color ?? '#888') }}
-                >
-                  {String((driverObj as Record<string, unknown>).number ?? '?')}
-                </div>
-              )}
-            </div>
-            {/* Driver info */}
-            <div className="flex-1">
-              <h2 className="text-2xl font-black text-white">
-                {String((driverObj as Record<string, unknown>).name ?? '')}
-              </h2>
-              <p className="text-f1-gray-light text-sm" style={{ color: String(((driverObj as Record<string, unknown>).team as Record<string, unknown>)?.color ?? '#aaa') }}>
-                {String(((driverObj as Record<string, unknown>).team as Record<string, unknown>)?.name ?? '')}
-              </p>
-            </div>
-            {/* Driver photo */}
-            {String((driverObj as Record<string, unknown>).photo_url ?? '') && (
-              <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 opacity-90">
-                <img
-                  src={String((driverObj as Record<string, unknown>).photo_url)}
-                  alt={String((driverObj as Record<string, unknown>).name ?? '')}
-                  className="w-full h-full object-cover object-top"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Current bid */}
-        <div className="flex items-end justify-between mb-4">
-          <div>
-            <p className="text-f1-gray text-xs uppercase tracking-wider mb-1">Offerta attuale</p>
-            <p className="text-5xl font-black text-white">{currentBid}<span className="text-xl text-f1-gray ml-1">cr</span></p>
-          </div>
-          <div className="text-right">
-            {leaderUserId && (
-              <div className="flex items-center gap-1.5 text-yellow-400">
-                <Crown className="w-4 h-4" />
-                <span className="text-sm font-bold">
-                  {isLeading ? 'Tu stai vincendo!' : String((leader as Record<string, unknown>)?.display_name ?? 'Unknown')}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 text-f1-gray-light mt-1">
-              <Clock className="w-4 h-4" />
-              <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
-                {timeLeft}s
+        <div className="p-6 pt-8">
+          {/* Header with auction type badge */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Gavel className="w-5 h-5 text-f1-red" />
+              <span className="text-xs font-bold uppercase tracking-widest text-f1-red">
+                {String(auction.type) === 'mini' ? 'Mini-Asta' : 'Asta'} in corso
               </span>
             </div>
+            <Badge variant={isExpired ? 'red' : 'green'} className="animate-pulse-red">
+              LIVE
+            </Badge>
           </div>
-        </div>
 
-        {/* Timer bar */}
-        <div className="w-full bg-f1-gray-dark rounded-full h-1.5 mb-4">
-          <div
-            className={`h-1.5 rounded-full transition-all duration-500 ${timerColor}`}
-            style={{ width: `${timerPct}%` }}
-          />
-        </div>
-
-        {/* Bid controls */}
-        {!isExpired && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {quickBids.map(amount => (
-                <button
-                  key={amount}
-                  type="button"
-                  onClick={() => setBidAmount(amount)}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
-                    bidAmount === amount
-                      ? 'bg-f1-red border-f1-red text-white'
-                      : 'border-f1-gray-mid text-f1-gray-light hover:border-f1-red hover:text-white'
-                  }`}
-                >
-                  {amount} cr
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={bidAmount}
-                min={currentBid + 1}
-                max={userCreditsLeft}
-                onChange={(e) => setBidAmount(Number(e.target.value))}
-                className="flex-1 bg-f1-gray-dark border border-f1-gray-mid rounded-lg px-3 py-2.5 text-white text-sm text-center font-bold focus:outline-none focus:ring-2 focus:ring-f1-red"
-              />
-              <Button
-                onClick={handleBid}
-                loading={pending}
-                disabled={!validation.valid || isLeading}
-                className="flex-shrink-0 flex items-center gap-2"
+          {driverObj && (
+            <div className="mb-8 flex flex-col items-center">
+              <DriverCard
+                driverId={driverShortName}
+                driverName={driverName}
+                driverShortName={driverShortName}
+                driverNumber={driverNumber}
+                teamName={String(((driverObj as Record<string, unknown>).team as Record<string, unknown>)?.short_name ?? '')}
+                teamColor={teamColor}
+                price={currentBid}
+                priceLabel="Prezzo"
                 size="lg"
+              />
+            </div>
+          )}
+
+          {/* Current bid prominently displayed */}
+          <div className="flex items-end justify-between mb-6 bg-white/5 rounded-xl p-4 border border-white/10">
+            <div>
+              <p className="text-f1-gray text-xs uppercase tracking-wider font-bold mb-2">Offerta attuale</p>
+              <p className="text-5xl font-black text-white">{currentBid}<span className="text-lg text-f1-gray ml-2">cr</span></p>
+            </div>
+            <div className="text-right">
+              {leaderUserId && (
+                <div className="flex items-center gap-1.5 text-yellow-400 mb-2">
+                  <Crown className="w-4 h-4" />
+                  <span className="text-sm font-bold">
+                    {isLeading ? 'Tu stai vincendo!' : String((leader as Record<string, unknown>)?.display_name ?? 'Unknown')}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 text-f1-gray-light">
+                <Clock className="w-4 h-4" />
+                <span className={`text-2xl font-black ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+                  {timeLeft}s
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Timer bar - Gradient from yellow to red */}
+          <div className="w-full bg-f1-gray-dark rounded-full h-2 mb-6 overflow-hidden">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${timerColor}`}
+              style={{
+                width: `${timerPct}%`,
+                background: timeLeft <= 8 ? `linear-gradient(90deg, #FFA500, #FF4444)` : timeLeft <= 15 ? `linear-gradient(90deg, #90EE90, #FFD700)` : `linear-gradient(90deg, #4169E1, #90EE90)`,
+              }}
+            />
+          </div>
+
+          {/* Bid controls */}
+          {!isExpired && (
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <input
+                  type="number"
+                  value={bidAmount}
+                  min={currentBid + 1}
+                  max={userCreditsLeft}
+                  onChange={(e) => setBidAmount(Number(e.target.value))}
+                  className="flex-1 rounded-lg px-4 py-3 text-white text-base font-bold focus:outline-none focus:ring-2 focus:ring-f1-red transition-all duration-200"
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.3)',
+                    borderColor: `${teamColor}40`,
+                    border: `1.5px solid ${teamColor}40`,
+                    boxShadow: `inset 0 0 10px ${teamColor}10, 0 0 10px ${teamColor}20`
+                  }}
+                />
+                <Button
+                  onClick={handleBid}
+                  loading={pending}
+                  disabled={!validation.valid || isLeading}
+                  className="flex-shrink-0 flex items-center gap-2"
+                  size="lg"
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  Offri
+                </Button>
+              </div>
+              {!validation.valid && (
+                <p className="text-red-400 text-xs font-semibold">{validation.error}</p>
+              )}
+              {isLeading && (
+                <p className="text-yellow-400 text-xs text-center font-bold">Stai già vincendo questa asta!</p>
+              )}
+            </div>
+          )}
+
+          {/* Admin: close button */}
+          {(isAdmin || isExpired) && (
+            <div className="mt-4 pt-4 border-t border-f1-gray-dark">
+              <Button
+                onClick={handleClose}
+                loading={pending}
+                variant="secondary"
+                size="sm"
+                className="w-full"
               >
-                <TrendingUp className="w-4 h-4" />
-                Offri
+                {isExpired ? 'Chiudi asta (scaduta)' : 'Chiudi asta anticipatamente (Admin)'}
               </Button>
             </div>
-            {!validation.valid && (
-              <p className="text-red-400 text-xs">{validation.error}</p>
-            )}
-            {isLeading && (
-              <p className="text-yellow-400 text-xs text-center">Stai già vincendo questa asta!</p>
-            )}
-          </div>
-        )}
-
-        {/* Admin: close button */}
-        {(isAdmin || isExpired) && (
-          <div className="mt-3 pt-3 border-t border-f1-gray-dark">
-            <Button
-              onClick={handleClose}
-              loading={pending}
-              variant="secondary"
-              size="sm"
-              className="w-full"
-            >
-              {isExpired ? 'Chiudi asta (scaduta)' : 'Chiudi asta anticipatamente (Admin)'}
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Bid history */}
       {bids.length > 0 && (
-        <div className="bg-f1-black-light border border-f1-gray-dark rounded-xl p-4">
+        <div className="relative overflow-hidden rounded-2xl border backdrop-blur-md p-4" style={{
+          background: `linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)`,
+          borderColor: `rgba(255,255,255,0.15)`
+        }}>
           <p className="text-xs font-bold uppercase tracking-wider text-f1-gray mb-3">Storico offerte</p>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+          <div className="space-y-2 max-h-48 overflow-y-auto">
             {bids.map((bid, i) => {
               const profile = (bid as Record<string, unknown>).profile as Record<string, unknown>
               const isMyBid = bid.user_id === userId
+              const bidAmount = Number(bid.amount ?? 0)
+
               return (
                 <div key={String(bid.id ?? i)}
-                  className={`flex items-center justify-between text-xs py-1.5 px-2 rounded ${i === 0 ? 'bg-f1-gray-dark' : ''}`}>
-                  <span className={isMyBid ? 'text-f1-red font-bold' : 'text-f1-gray-light'}>
-                    {String(profile?.display_name ?? 'Unknown')}
-                    {isMyBid && ' (tu)'}
-                  </span>
-                  <span className={`font-black ${i === 0 ? 'text-yellow-400' : 'text-white'}`}>
-                    {String(bid.amount ?? 0)} cr
+                  className={`flex items-center justify-between text-xs py-2 px-3 rounded-lg transition-all duration-200 ${
+                    i === 0 ? 'bg-f1-red/20 border border-f1-red/40' : 'bg-white/5 border border-white/10'
+                  }`}>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: teamColor }}
+                    />
+                    <span className={isMyBid ? 'text-f1-red font-bold' : 'text-f1-gray-light'}>
+                      {String(profile?.display_name ?? 'Unknown')}
+                      {isMyBid && ' (tu)'}
+                    </span>
+                  </div>
+                  <span className={`font-black ${i === 0 ? 'text-f1-red' : 'text-white'}`}>
+                    {bidAmount} cr
                   </span>
                 </div>
               )

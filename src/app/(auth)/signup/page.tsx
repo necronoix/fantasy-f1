@@ -32,11 +32,11 @@ export default function SignupPage() {
   if (success) {
     return (
       <div className="bg-f1-black-light border border-f1-gray-dark rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-4">📧</div>
-        <h2 className="text-lg font-bold mb-2">Controlla la tua email</h2>
+        <div className="text-4xl mb-4">✅</div>
+        <h2 className="text-lg font-bold mb-2">Registrazione completata!</h2>
         <p className="text-f1-gray-light text-sm">{success}</p>
-        <Link href="/login" className="block mt-4 text-f1-red font-semibold text-sm hover:underline">
-          Torna al login
+        <Link href="/login" className="block mt-4 bg-gradient-to-br from-f1-red to-f1-red-dark text-white font-bold py-2.5 px-6 rounded-xl hover:shadow-f1-glow transition-all">
+          Accedi ora
         </Link>
       </div>
     )

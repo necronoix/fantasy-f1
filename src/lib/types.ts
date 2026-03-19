@@ -127,6 +127,7 @@ export interface GpSelection {
   gp_id: string
   user_id: string
   captain_driver_id: string
+  bench_driver_id?: string
   predictions_json: GpPredictions
   locked_at?: string
   captain_driver?: Driver
@@ -182,6 +183,7 @@ export interface ScoringRulesData {
   dsq: number
   dnc: number
   penalty_per_position: number
+  positions_gained_bonus: number
   captain_multiplier: number
   predictions: {
     pole: number
@@ -213,10 +215,14 @@ export interface ScoreBreakdown {
     sprint_pts: number
     fastest_lap_pts: number
     penalty_pts: number
+    positions_gained_pts: number
     is_captain: boolean
     captain_multiplier_applied: boolean
+    is_bench_sub: boolean
     subtotal: number
   }>
+  team_pts: number  // Points from the user's owned F1 team's two drivers
+  team_name?: string  // Name of the user's owned team
   predictions_pts: number
   total: number
 }

@@ -4,25 +4,13 @@ import { startInitialAuction, startMiniAuction } from '@/app/actions/auction'
 import { Button } from '@/components/ui/Button'
 import { useState, useTransition } from 'react'
 import toast from 'react-hot-toast'
+import { DriverHelmet } from '@/components/f1/DriverHelmet'
+import { DRIVER_TEAMS, TEAM_COLORS } from '@/components/f1/f1-data'
 
 interface Props {
   leagueId: string
   allDrivers: Record<string, unknown>[]
   takenIds: string[]
-}
-
-const TEAM_COLORS: Record<string, string> = {
-  mclaren_2026: '#FF8000',
-  ferrari_2026: '#E8002D',
-  mercedes_2026: '#27F4D2',
-  redbull_2026: '#3671C6',
-  racingbulls_2026: '#6692FF',
-  astonmartin_2026: '#358C75',
-  williams_2026: '#64C4FF',
-  alpine_2026: '#0090FF',
-  haas_2026: '#B6BABD',
-  audi_2026: '#C5000A',
-  cadillac_2026: '#888888',
 }
 
 export function AdminDriverPicker({ leagueId, allDrivers, takenIds }: Props) {
@@ -72,26 +60,56 @@ export function AdminDriverPicker({ leagueId, allDrivers, takenIds }: Props) {
             const teamName = String((drivers[0]?.team as Record<string, unknown>)?.name ?? teamId)
             return (
               <div key={teamId}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-                  <span className="text-xs font-bold uppercase tracking-wider text-f1-gray-light">{teamName}</span>
+                {/* Team header with colored background */}
+                <div 
+                  className="flex items-center gap-3 mb-2 px-3 py-2 rounded-md"
+                  style={{ backgroundColor: `${color}15` }}
+                >
+                  <div 
+                    className="w-1.5 h-6 rounded flex-shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white flex-1">{teamName}</span>
+                  <span className="text-xs text-f1-gray-light">{drivers.length} piloti</span>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5 pl-4">
-                  {drivers.map(d => (
-                    <button
-                      key={String(d.id)}
-                      type="button"
-                      onClick={() => setSelected(selected === String(d.id) ? '' : String(d.id))}
-                      className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all text-sm ${
-                        selected === String(d.id)
-                          ? 'border-f1-red bg-f1-red/10 text-white'
-                          : 'border-f1-gray-dark hover:border-f1-gray-mid text-f1-gray-light'
-                      }`}
-                    >
-                      <span className="font-black text-xs" style={{ color }}>{String(d.number ?? '')}</span>
-                      <span className="font-semibold truncate">{String(d.name ?? '')}</span>
-                    </button>
-                  ))}
+
+                <div className="grid grid-cols-2 gap-1.5 pl-2">
+                  {drivers.map(d => {
+                    const driverShortName = String(d.short_name ?? '')
+                    return (
+                      <button
+                        key={String(d.id)}
+                        type="button"
+                        onClick={() => setSelected(selected === String(d.id) ? '' : String(d.id))}
+                        className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all text-sm ${
+                          selected === String(d.id)
+                            ? 'border-f1-red bg-f1-red/10 text-white'
+                            : 'border-f1-gray-dark hover:border-f1-gray-mid text-f1-gray-light'
+                        }`}
+                      >
+                        {/* Driver helmet avatar */}
+                        <div className="flex-shrink-0 w-8 h-8 rounded overflow-hidden border border-f1-gray-dark">
+                          <DriverHelmet 
+                            driverId={driverShortName}
+                            size={32}
+                          />
+                        </div>
+
+                        {/* Driver info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-1.5">
+                            <span 
+                              className="font-black text-xs flex-shrink-0" 
+                              style={{ color }}
+                            >
+                              {String(d.number ?? '')}
+                            </span>
+                            <span className="font-semibold truncate">{String(d.name ?? '')}</span>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )

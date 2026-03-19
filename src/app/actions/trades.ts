@@ -15,8 +15,21 @@ export async function proposeTrade(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Non autorizzato' }
 
+  if (user.id === accepterUserId) return { error: 'Non puoi scambiare con te stesso' }
+  if (proposerDriverId === accepterDriverId) return { error: 'Non puoi scambiare lo stesso pilota' }
+
   const admin = createAdminClient()
   const monthKey = getTradesMonthKey()
+
+  // Get league settings for trade limit
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const settings = (league?.settings_json ?? {}) as Record<string, unknown>
+  const tradeLimit = Number(settings.trade_limit_per_month ?? 2)
 
   const { data: proposerMember } = await admin
     .from('league_members')
@@ -31,8 +44,25 @@ export async function proposeTrade(
     ? proposerMember.trades_used_month
     : 0
 
-  if (currentMonth >= 1) {
-    return { error: 'Hai già effettuato uno scambio questo mese' }
+  if (currentMonth >= tradeLimit) {
+    return { error: `Hai già effettuato ${tradeLimit} scambi questo mese` }
+  }
+
+  // Check accepter doesn't already have a pending trade for this driver
+  const { data: existingTrades } = await admin
+    .from('trades')
+    .select('id, offer_json')
+    .eq('league_id', leagueId)
+    .eq('status', 'pending')
+    .or(`proposer_user_id.eq.${user.id},accepter_user_id.eq.${user.id}`)
+
+  if (existingTrades && existingTrades.length > 0) {
+    for (const t of existingTrades) {
+      const o = t.offer_json as Record<string, unknown>
+      if (o.proposer_driver_id === proposerDriverId || o.accepter_driver_id === accepterDriverId) {
+        return { error: 'Esiste già una proposta pendente per uno di questi piloti' }
+      }
+    }
   }
 
   const { data: accepterMember } = await admin
@@ -52,7 +82,8 @@ export async function proposeTrade(
 
   if (!validation.valid) return { error: validation.error }
 
-  const { data: proposerDriver } = await admin
+  // Verify ownership using roster IDs
+  const { data: proposerRosterEntry } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -60,9 +91,9 @@ export async function proposeTrade(
     .eq('driver_id', proposerDriverId)
     .maybeSingle()
 
-  if (!proposerDriver) return { error: 'Non possiedi questo pilota' }
+  if (!proposerRosterEntry) return { error: 'Non possiedi questo pilota' }
 
-  const { data: accepterDriver } = await admin
+  const { data: accepterRosterEntry } = await admin
     .from('rosters')
     .select('id')
     .eq('league_id', leagueId)
@@ -70,8 +101,9 @@ export async function proposeTrade(
     .eq('driver_id', accepterDriverId)
     .maybeSingle()
 
-  if (!accepterDriver) return { error: 'Il destinatario non possiede questo pilota' }
+  if (!accepterRosterEntry) return { error: 'Il destinatario non possiede questo pilota' }
 
+  // Store roster IDs in the offer for safe swapping later
   const { data: trade, error } = await admin
     .from('trades')
     .insert({
@@ -81,6 +113,8 @@ export async function proposeTrade(
       offer_json: {
         proposer_driver_id: proposerDriverId,
         accepter_driver_id: accepterDriverId,
+        proposer_roster_id: proposerRosterEntry.id,
+        accepter_roster_id: accepterRosterEntry.id,
         credit_adjustment: creditAdjustment,
       },
       status: 'pending',
@@ -114,23 +148,51 @@ export async function acceptTrade(tradeId: string) {
   const offer = trade.offer_json as {
     proposer_driver_id: string
     accepter_driver_id: string
+    proposer_roster_id?: string
+    accepter_roster_id?: string
     credit_adjustment: number
   }
 
-  await admin
+  // Re-verify ownership before executing the swap
+  const { data: proposerRoster } = await admin
     .from('rosters')
-    .update({ user_id: trade.accepter_user_id, acquired_via: 'trade' })
+    .select('id')
     .eq('league_id', trade.league_id)
     .eq('user_id', trade.proposer_user_id)
     .eq('driver_id', offer.proposer_driver_id)
+    .maybeSingle()
+
+  const { data: accepterRoster } = await admin
+    .from('rosters')
+    .select('id')
+    .eq('league_id', trade.league_id)
+    .eq('user_id', trade.accepter_user_id)
+    .eq('driver_id', offer.accepter_driver_id)
+    .maybeSingle()
+
+  if (!proposerRoster || !accepterRoster) {
+    // One of the drivers is no longer owned — auto-reject
+    await admin
+      .from('trades')
+      .update({ status: 'rejected' })
+      .eq('id', tradeId)
+    revalidatePath(`/league/${trade.league_id}/trades`)
+    return { error: 'Uno dei piloti non è più nel roster. Scambio annullato.' }
+  }
+
+  // Swap using roster row IDs to avoid conflict
+  // Step 1: Set proposer's driver to a temp user_id (null-safe via unique roster IDs)
+  await admin
+    .from('rosters')
+    .update({ user_id: trade.accepter_user_id, acquired_via: 'trade' })
+    .eq('id', proposerRoster.id)
 
   await admin
     .from('rosters')
     .update({ user_id: trade.proposer_user_id, acquired_via: 'trade' })
-    .eq('league_id', trade.league_id)
-    .eq('user_id', trade.accepter_user_id)
-    .eq('driver_id', offer.accepter_driver_id)
+    .eq('id', accepterRoster.id)
 
+  // Handle credit adjustment
   if (offer.credit_adjustment !== 0) {
     const { data: proposerM } = await admin
       .from('league_members')
@@ -147,6 +209,16 @@ export async function acceptTrade(tradeId: string) {
       .single()
 
     if (proposerM && accepterM) {
+      // Re-validate credits before applying
+      if (offer.credit_adjustment > 0 && proposerM.credits_left < offer.credit_adjustment) {
+        // Rollback the swap
+        await admin.from('rosters').update({ user_id: trade.proposer_user_id, acquired_via: 'trade' }).eq('id', proposerRoster.id)
+        await admin.from('rosters').update({ user_id: trade.accepter_user_id, acquired_via: 'trade' }).eq('id', accepterRoster.id)
+        await admin.from('trades').update({ status: 'rejected' }).eq('id', tradeId)
+        revalidatePath(`/league/${trade.league_id}/trades`)
+        return { error: 'Crediti insufficienti. Scambio annullato.' }
+      }
+
       await admin
         .from('league_members')
         .update({
@@ -167,11 +239,13 @@ export async function acceptTrade(tradeId: string) {
     }
   }
 
+  // Mark trade as accepted
   await admin
     .from('trades')
     .update({ status: 'accepted', accepted_at: new Date().toISOString() })
     .eq('id', tradeId)
 
+  // Increment trades_used_month for BOTH users
   const monthKey = getTradesMonthKey()
   for (const userId of [trade.proposer_user_id, trade.accepter_user_id]) {
     const { data: m } = await admin
@@ -191,6 +265,27 @@ export async function acceptTrade(tradeId: string) {
         })
         .eq('league_id', trade.league_id)
         .eq('user_id', userId)
+    }
+  }
+
+  // Cancel any other pending trades involving the same drivers in this league
+  const { data: conflictingTrades } = await admin
+    .from('trades')
+    .select('id, offer_json')
+    .eq('league_id', trade.league_id)
+    .eq('status', 'pending')
+    .neq('id', tradeId)
+
+  if (conflictingTrades) {
+    for (const ct of conflictingTrades) {
+      const ctOffer = ct.offer_json as Record<string, unknown>
+      const involvedDrivers = [offer.proposer_driver_id, offer.accepter_driver_id]
+      if (
+        involvedDrivers.includes(String(ctOffer.proposer_driver_id)) ||
+        involvedDrivers.includes(String(ctOffer.accepter_driver_id))
+      ) {
+        await admin.from('trades').update({ status: 'expired' }).eq('id', ct.id)
+      }
     }
   }
 
@@ -235,15 +330,57 @@ export async function rejectTrade(tradeId: string) {
 export async function getLeagueTrades(leagueId: string) {
   const admin = createAdminClient()
 
-  const { data } = await admin
+  // Get trades
+  const { data: trades } = await admin
     .from('trades')
-    .select(`
-      *,
-      proposer:profiles!trades_proposer_user_id_fkey(display_name),
-      accepter:profiles!trades_accepter_user_id_fkey(display_name)
-    `)
+    .select('*')
     .eq('league_id', leagueId)
     .order('created_at', { ascending: false })
 
-  return data ?? []
+  if (!trades || trades.length === 0) return []
+
+  // Collect all user IDs and driver IDs to resolve names
+  const userIds = new Set<string>()
+  const driverIds = new Set<string>()
+  for (const t of trades) {
+    userIds.add(t.proposer_user_id)
+    userIds.add(t.accepter_user_id)
+    const offer = t.offer_json as Record<string, unknown>
+    if (offer.proposer_driver_id) driverIds.add(String(offer.proposer_driver_id))
+    if (offer.accepter_driver_id) driverIds.add(String(offer.accepter_driver_id))
+  }
+
+  // Fetch profiles
+  const { data: profiles } = await admin
+    .from('profiles')
+    .select('id, display_name')
+    .in('id', [...userIds])
+
+  const profileMap: Record<string, string> = {}
+  for (const p of profiles ?? []) {
+    profileMap[p.id] = p.display_name ?? 'Unknown'
+  }
+
+  // Fetch driver names
+  const { data: drivers } = await admin
+    .from('drivers')
+    .select('id, name, short_name')
+    .in('id', [...driverIds])
+
+  const driverMap: Record<string, string> = {}
+  for (const d of drivers ?? []) {
+    driverMap[d.id] = d.name ?? d.short_name ?? d.id
+  }
+
+  // Enrich trades
+  return trades.map((t) => {
+    const offer = t.offer_json as Record<string, unknown>
+    return {
+      ...t,
+      proposer_name: profileMap[t.proposer_user_id] ?? 'Unknown',
+      accepter_name: profileMap[t.accepter_user_id] ?? 'Unknown',
+      proposer_driver_name: driverMap[String(offer.proposer_driver_id)] ?? String(offer.proposer_driver_id),
+      accepter_driver_name: driverMap[String(offer.accepter_driver_id)] ?? String(offer.accepter_driver_id),
+    }
+  })
 }

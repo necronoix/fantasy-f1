@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { formatDistanceToNow, format, isPast } from 'date-fns'
+import { formatDistanceToNow, format, isPast, subHours } from 'date-fns'
 import { it } from 'date-fns/locale'
 
 export function cn(...inputs: ClassValue[]) {
@@ -22,6 +22,17 @@ export function timeFromNow(dateStr: string): string {
 export function isLocked(dateStr: string | undefined): boolean {
   if (!dateStr) return false
   return isPast(new Date(dateStr))
+}
+
+export function isPredictionLocked(qualifyingDatetime: string | undefined | null): boolean {
+  if (!qualifyingDatetime) return false
+  const lockTime = subHours(new Date(qualifyingDatetime), 1)
+  return isPast(lockTime)
+}
+
+export function getPredictionLockTime(qualifyingDatetime: string | undefined | null): Date | null {
+  if (!qualifyingDatetime) return null
+  return subHours(new Date(qualifyingDatetime), 1)
 }
 
 export function getTimerSeconds(endsAt: string): number {
@@ -59,15 +70,14 @@ export const DEFAULT_SCORING_RULES = {
     '1': 25, '2': 18, '3': 15, '4': 12, '5': 10,
     '6': 8, '7': 6, '8': 4, '9': 2, '10': 1,
   },
-  sprint: {
-    '1': 8, '2': 7, '3': 6, '4': 5, '5': 4,
-    '6': 3, '7': 2, '8': 1,
-  },
-  fastest_lap: 2,
-  dnf: -5,
-  dsq: -10,
-  dnc: -3,
+  // Sprint rimosso dalla stagione 2026
+  sprint: undefined,
+  fastest_lap: 5,
+  dnf: -10,
+  dsq: -15,
+  dnc: 0, // DNC: nessun malus — il pilota in panchina lo sostituisce
   penalty_per_position: -1,
+  positions_gained_bonus: 1, // +1 pt per ogni posizione guadagnata (qualifica → gara)
   captain_multiplier: 2,
   predictions: {
     pole: 5,

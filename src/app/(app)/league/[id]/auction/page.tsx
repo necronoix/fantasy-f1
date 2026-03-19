@@ -1,12 +1,16 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getActiveAuction, getAuctionBids } from '@/app/actions/auction'
+import { getTeamOwnership } from '@/app/actions/team-auction'
 import { LeagueNav } from '@/components/ui/LeagueNav'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { notFound } from 'next/navigation'
 import { AuctionRoom } from '@/components/auction/AuctionRoom'
+import { TeamAuctionRoom } from '@/components/auction/TeamAuctionRoom'
 import { AdminDriverPicker } from '@/components/auction/AdminDriverPicker'
-import { Gavel } from 'lucide-react'
+import { AdminTeamPicker } from '@/components/auction/AdminTeamPicker'
+import { Gavel, Shield } from 'lucide-react'
+import { TEAM_NAMES, TEAM_COLORS } from '@/components/f1/f1-data'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -20,11 +24,13 @@ export default async function AuctionPage({ params }: Props) {
 
   const { data: myMembership } = await admin
     .from('league_members')
-    .select('role, credits_left, credits_spent')
+    .select('role, credits_left, credits_spent, profile:profiles(display_name)')
     .eq('league_id', id)
     .eq('user_id', user.id)
     .single()
   if (!myMembership) notFound()
+
+  const myDisplayName = String(((myMembership as Record<string, unknown>).profile as Record<string, unknown>)?.display_name ?? 'Utente')
 
   const isAdmin = (myMembership as Record<string, unknown>).role === 'admin'
 
@@ -70,6 +76,11 @@ export default async function AuctionPage({ params }: Props) {
 
   const takenIds = new Set((takenDrivers ?? []).map(r => String((r as Record<string, unknown>).driver_id)))
 
+  // Team auction data
+  const teamOwnership = await getTeamOwnership(id)
+  const takenTeamIds = teamOwnership.map(t => String((t as Record<string, unknown>).team_id))
+  const isTeamAuction = activeAuction && (activeAuction as Record<string, unknown>).type === 'team'
+
   return (
     <div className="space-y-5">
       <div>
@@ -86,15 +97,29 @@ export default async function AuctionPage({ params }: Props) {
 
       {/* Live auction room */}
       {activeAuction ? (
-        <AuctionRoom
-          leagueId={id}
-          auction={activeAuction as Record<string, unknown>}
-          initialBids={bids as Record<string, unknown>[]}
-          userId={user.id}
-          userCreditsLeft={Number((myMembership as Record<string, unknown>).credits_left ?? 200)}
-          userRosterCount={myRosterCount ?? 0}
-          isAdmin={isAdmin}
-        />
+        isTeamAuction ? (
+          <TeamAuctionRoom
+            leagueId={id}
+            auction={activeAuction as Record<string, unknown>}
+            initialBids={bids as Record<string, unknown>[]}
+            userId={user.id}
+            userDisplayName={myDisplayName}
+            userCreditsLeft={Number((myMembership as Record<string, unknown>).credits_left ?? 200)}
+            isAdmin={isAdmin}
+            hasTeam={takenTeamIds.some(tid => teamOwnership.some(t => String((t as Record<string, unknown>).user_id) === user.id))}
+          />
+        ) : (
+          <AuctionRoom
+            leagueId={id}
+            auction={activeAuction as Record<string, unknown>}
+            initialBids={bids as Record<string, unknown>[]}
+            userId={user.id}
+            userDisplayName={myDisplayName}
+            userCreditsLeft={Number((myMembership as Record<string, unknown>).credits_left ?? 200)}
+            userRosterCount={myRosterCount ?? 0}
+            isAdmin={isAdmin}
+          />
+        )
       ) : (
         <Card>
           <div className="text-center py-10">
@@ -117,6 +142,59 @@ export default async function AuctionPage({ params }: Props) {
             allDrivers={(allDrivers ?? []) as Record<string, unknown>[]}
             takenIds={[...takenIds]}
           />
+        </Card>
+      )}
+
+      {/* Admin: start team auction */}
+      {isAdmin && !activeAuction && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <span className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-f1-red" />
+                Asta Scuderie (Admin)
+              </span>
+            </CardTitle>
+            <Badge variant="red">Admin</Badge>
+          </CardHeader>
+          <AdminTeamPicker
+            leagueId={id}
+            takenTeamIds={takenTeamIds}
+          />
+        </Card>
+      )}
+
+      {/* Team ownership display */}
+      {teamOwnership.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <span className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Scuderie assegnate
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <div className="space-y-2">
+            {teamOwnership.map((t) => {
+              const teamId = String((t as Record<string, unknown>).team_id)
+              const profile = (t as Record<string, unknown>).profile as Record<string, unknown>
+              const color = TEAM_COLORS[teamId] ?? '#888'
+              const name = TEAM_NAMES[teamId] ?? teamId
+              return (
+                <div key={teamId} className="flex items-center justify-between py-2 border-b border-f1-gray-dark last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded" style={{ backgroundColor: color }} />
+                    <span className="text-sm font-bold text-white">{name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-f1-gray-light">{String(profile?.display_name ?? 'Unknown')}</span>
+                    <span className="text-xs text-green-400 font-bold">{String((t as Record<string, unknown>).purchase_price ?? 0)} cr</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </Card>
       )}
 

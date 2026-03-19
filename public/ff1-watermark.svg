@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
+  <!-- Subtle FF1 text watermark -->
+  <text x="200" y="110" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="100" font-style="italic" letter-spacing="-6" opacity="0.025" fill="white">
+    FF1
+  </text>
+  <!-- Subtle car silhouette -->
+  <g transform="translate(200, 140) scale(0.5)" opacity="0.015">
+    <path d="M-100,-20 L-70,-16 L0,-12 L50,-9 L90,-4 L100,0 L90,4 L50,9 L0,12 L-70,16 L-100,20 L-95,18 L-95,-18 Z" fill="white"/>
+    <rect x="-105" y="-28" width="6" height="56" fill="white"/>
+    <rect x="88" y="-30" width="5" height="60" fill="white"/>
+  </g>
+</svg>

@@ -1,10 +1,41 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { LeagueNav } from '@/components/ui/LeagueNav'
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { CalendarDays, ChevronRight } from 'lucide-react'
+import { CalendarDays } from 'lucide-react'
+import { CircuitMap } from '@/components/f1/CircuitMap'
+
+// Country flag emojis mapped by GP id
+const COUNTRY_FLAGS: Record<string, string> = {
+  aus_2026: '🇦🇺', chn_2026: '🇨🇳', jpn_2026: '🇯🇵', bhr_2026: '🇧🇭',
+  ksa_2026: '🇸🇦', sau_2026: '🇸🇦', mia_2026: '🇺🇸', mon_2026: '🇲🇨',
+  esp_2026: '🇪🇸', mad_2026: '🇪🇸', can_2026: '🇨🇦', aut_2026: '🇦🇹',
+  gbr_2026: '🇬🇧', bel_2026: '🇧🇪', hun_2026: '🇭🇺', ned_2026: '🇳🇱',
+  ita_2026: '🇮🇹', aze_2026: '🇦🇿', sin_2026: '🇸🇬', usa_2026: '🇺🇸',
+  mex_2026: '🇲🇽', bra_2026: '🇧🇷', lv_2026: '🇺🇸', qat_2026: '🇶🇦',
+  abu_2026: '🇦🇪',
+}
+
+// City names for each GP
+const CITY_NAMES: Record<string, string> = {
+  aus_2026: 'MELBOURNE', chn_2026: 'SHANGHAI', jpn_2026: 'SUZUKA', bhr_2026: 'SAKHIR',
+  ksa_2026: 'JEDDAH', mia_2026: 'MIAMI', mon_2026: 'MONTE CARLO', esp_2026: 'BARCELONA',
+  can_2026: 'MONTREAL', aut_2026: 'SPIELBERG', gbr_2026: 'SILVERSTONE', bel_2026: 'SPA',
+  hun_2026: 'BUDAPEST', ned_2026: 'ZANDVOORT', ita_2026: 'MONZA', aze_2026: 'BAKU',
+  sin_2026: 'SINGAPORE', usa_2026: 'AUSTIN', mex_2026: 'MEXICO CITY', bra_2026: 'SAO PAULO',
+  lv_2026: 'LAS VEGAS', qat_2026: 'LUSAIL', abu_2026: 'YAS MARINA', mad_2026: 'MADRID',
+}
+
+// Country color accents for left border (flag-inspired)
+const COUNTRY_ACCENT: Record<string, string> = {
+  aus_2026: '#00843D', chn_2026: '#DE2910', jpn_2026: '#BC002D', bhr_2026: '#CE1126',
+  ksa_2026: '#006C35', mia_2026: '#3C3B6E', mon_2026: '#CE1126', esp_2026: '#F1BF00',
+  can_2026: '#FF0000', aut_2026: '#ED2939', gbr_2026: '#012169', bel_2026: '#FDDA24',
+  hun_2026: '#477050', ned_2026: '#FF6600', ita_2026: '#008C45', aze_2026: '#00B5E2',
+  sin_2026: '#EF3340', usa_2026: '#3C3B6E', mex_2026: '#006847', bra_2026: '#009739',
+  lv_2026: '#3C3B6E', qat_2026: '#8D1B3D', abu_2026: '#00732F', mad_2026: '#F1BF00',
+}
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -39,55 +70,85 @@ export default async function GpListPage({ params }: Props) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-black flex items-center gap-2">
-          <CalendarDays className="w-6 h-6 text-f1-red" />
+      <div className="relative">
+        <div className="absolute left-0 top-0 w-2 h-12 bg-gradient-to-b from-f1-red to-f1-red/20 rounded-r-full" />
+        <h1 className="text-4xl font-black pl-4 flex items-center gap-3">
+          <CalendarDays className="w-8 h-8 text-f1-red" />
           Calendario GP
         </h1>
-        <p className="text-f1-gray text-sm">Stagione 2026 · 24 round</p>
+        <p className="text-f1-gray text-sm pl-4 uppercase tracking-widest font-semibold mt-1">Stagione 2026 · 24 round</p>
       </div>
 
       <LeagueNav leagueId={id} isAdmin={(myMembership as Record<string, unknown>).role === 'admin'} />
 
-      <div className="space-y-1.5">
+      {/* GP Cards Grid - matching reference image style */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {(gps ?? []).map((gp) => {
-          const hasSelection = selectedGpIds.has(String(gp.id))
-          const statusBadge = {
-            upcoming: { label: 'In arrivo', variant: 'default' as const },
-            qualifying: { label: 'Qualifiche', variant: 'yellow' as const },
-            race: { label: 'Gara', variant: 'red' as const },
-            completed: { label: 'Completato', variant: 'green' as const },
-          }[String(gp.status)] ?? { label: String(gp.status), variant: 'default' as const }
+          const gpId = String(gp.id)
+          const hasSelection = selectedGpIds.has(gpId)
+          const isCompleted = gp.status === 'completed'
+          const isRace = gp.status === 'race'
+          const isQualifying = gp.status === 'qualifying'
+          const accentColor = COUNTRY_ACCENT[gpId] ?? '#E8002D'
+          const cityName = CITY_NAMES[gpId] ?? String(gp.circuit ?? '')
 
           return (
-            <Link
-              key={String(gp.id)}
-              href={`/league/${id}/gp/${gp.id}`}
-              className="block"
-            >
-              <Card className="hover:border-f1-gray-mid transition-colors cursor-pointer group py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="text-center min-w-[36px]">
-                      <div className="text-f1-red font-black text-xl leading-none">{String(gp.round)}</div>
-                    </div>
+            <Link key={gpId} href={`/league/${id}/gp/${gp.id}`} className="block group">
+              <div
+                className="relative overflow-hidden rounded-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(232,0,45,0.3)]"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(40,40,50,0.9) 0%, rgba(25,25,35,0.95) 100%)',
+                  border: `2px solid rgba(232,0,45,0.4)`,
+                }}
+              >
+                {/* Top red gradient stripe */}
+                <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-f1-red via-red-500 to-f1-red" />
+
+                {/* Left country color accent */}
+                <div
+                  className="absolute top-0 left-0 bottom-0 w-[3px]"
+                  style={{ background: `linear-gradient(180deg, ${accentColor}, ${accentColor}60)` }}
+                />
+
+                {/* Header: Round + Country Name */}
+                <div className="px-4 pt-4 pb-2 flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-f1-red font-black text-xl tracking-tight">R{String(gp.round)}</span>
                     <div>
-                      <p className="font-bold text-white text-sm">{String(gp.name)}</p>
-                      <p className="text-f1-gray text-xs">
-                        {new Date(String(gp.date)).toLocaleDateString('it-IT', { day: '2-digit', month: 'long' })}
-                        {gp.has_sprint && <span className="ml-2 text-yellow-500">⚡ Sprint</span>}
-                      </p>
+                      <p className="text-white font-black text-sm uppercase tracking-wider leading-tight">{String(gp.name).replace(' Grand Prix', '').replace(' GP', '')}</p>
+                      <p className="text-f1-gray text-[10px] uppercase tracking-widest font-bold">Grand Prix</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex flex-col items-end gap-1">
-                      <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-                      {hasSelection && <span className="text-green-400 text-[10px] font-bold">✓ Selezione</span>}
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-f1-gray group-hover:text-f1-red transition-colors" />
+                  <div className="flex items-center gap-1">
+                    {hasSelection && (
+                      <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]" />
+                    )}
+                    {isCompleted && <Badge variant="green" className="text-[8px] px-1.5 py-0.5">DONE</Badge>}
+                    {isRace && <Badge variant="red" className="text-[8px] px-1.5 py-0.5">LIVE</Badge>}
+                    {isQualifying && <Badge variant="yellow" className="text-[8px] px-1.5 py-0.5">QUALI</Badge>}
                   </div>
                 </div>
-              </Card>
+
+                {/* Circuit Layout - Center */}
+                <div className="px-6 py-4 flex items-center justify-center min-h-[120px]">
+                  <div className="w-full h-24 opacity-70 group-hover:opacity-100 transition-opacity duration-300">
+                    <CircuitMap circuitId={gpId} color="white" accentColor="#E8002D" className="w-full h-full" />
+                  </div>
+                </div>
+
+                {/* Footer: Date + City */}
+                <div className="px-4 pb-4 flex items-end justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-base">{COUNTRY_FLAGS[gpId] ?? '🏁'}</span>
+                    <span className="text-f1-gray text-xs font-semibold uppercase tracking-wider">
+                      {new Date(String(gp.date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-white font-black text-sm uppercase tracking-wider">
+                    {cityName}
+                  </span>
+                </div>
+              </div>
             </Link>
           )
         })}
