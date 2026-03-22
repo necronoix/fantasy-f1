@@ -55,7 +55,7 @@ export async function startTeamAuction(leagueId: string, teamId: string) {
       type: 'team',
       target_team_id: teamId,
       target_driver_id: null,
-      current_bid: 1,
+      current_bid: 0,
       ends_at: endsAt,
       status: 'active',
       metadata_json: { auction_type: 'team', team_id: teamId },

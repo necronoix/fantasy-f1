@@ -53,7 +53,7 @@ export async function startInitialAuction(leagueId: string, driverId: string) {
       league_id: leagueId,
       type: 'initial',
       target_driver_id: driverId,
-      current_bid: 1,
+      current_bid: 0,
       ends_at: endsAt,
       status: 'active',
     })
@@ -361,7 +361,7 @@ export async function startMiniAuction(
       target_driver_id: targetDriverId,
       drop_driver_user_id: user.id,
       drop_driver_id: dropDriverId,
-      current_bid: 1,
+      current_bid: 0,
       ends_at: endsAt,
       status: 'active',
     })

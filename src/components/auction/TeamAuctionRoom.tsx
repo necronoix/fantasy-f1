@@ -35,12 +35,12 @@ export function TeamAuctionRoom({
 }: Props) {
   const [auction, setAuction] = useState(initialAuction)
   const [bids, setBids] = useState(initialBids)
-  const [bidAmount, setBidAmount] = useState(Number(initialAuction.current_bid ?? 1) + 1)
+  const [bidAmount, setBidAmount] = useState(Number(initialAuction.current_bid ?? 0) + 1)
   const [timeLeft, setTimeLeft] = useState(getTimerSeconds(String(initialAuction.ends_at)))
   const [pending, startTransition] = useTransition()
 
   const leader = auction.leader as Record<string, unknown> | null
-  const currentBid = Number(auction.current_bid ?? 1)
+  const currentBid = Number(auction.current_bid ?? 0)
   const leaderUserId = String(auction.leader_user_id ?? '')
   const isLeading = leaderUserId === userId
   const auctionId = String(auction.id)
