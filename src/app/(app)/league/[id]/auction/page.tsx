@@ -38,12 +38,13 @@ export default async function AuctionPage({ params }: Props) {
   const activeAuction = await getActiveAuction(id)
   const bids = activeAuction ? await getAuctionBids(String(activeAuction.id)) : []
 
-  // Get roster count (to check completion)
-  const { count: myRosterCount } = await admin
+  // Get DRIVER roster count only (not teams) for slot checking
+  const { count: myDriverCount } = await admin
     .from('rosters')
     .select('*', { count: 'exact', head: true })
     .eq('league_id', id)
     .eq('user_id', user.id)
+    .not('driver_id', 'is', null)
 
   // Get all members + roster count
   const { data: allMembers } = await admin
@@ -51,14 +52,21 @@ export default async function AuctionPage({ params }: Props) {
     .select('user_id, credits_left, credits_spent, profile:profiles(display_name)')
     .eq('league_id', id)
 
-  const memberRosterCounts: Record<string, number> = {}
+  const memberDriverCounts: Record<string, number> = {}
+  const memberTeamCounts: Record<string, number> = {}
   const { data: allRosters } = await admin
     .from('rosters')
-    .select('user_id')
+    .select('user_id, driver_id, team_id')
     .eq('league_id', id)
   for (const r of (allRosters ?? [])) {
-    const uid = String((r as Record<string, unknown>).user_id)
-    memberRosterCounts[uid] = (memberRosterCounts[uid] ?? 0) + 1
+    const rr = r as Record<string, unknown>
+    const uid = String(rr.user_id)
+    if (rr.driver_id) {
+      memberDriverCounts[uid] = (memberDriverCounts[uid] ?? 0) + 1
+    }
+    if (rr.team_id) {
+      memberTeamCounts[uid] = (memberTeamCounts[uid] ?? 0) + 1
+    }
   }
 
   // All drivers + taken status
@@ -116,7 +124,7 @@ export default async function AuctionPage({ params }: Props) {
             userId={user.id}
             userDisplayName={myDisplayName}
             userCreditsLeft={Number((myMembership as Record<string, unknown>).credits_left ?? 200)}
-            userRosterCount={myRosterCount ?? 0}
+            userRosterCount={myDriverCount ?? 0}
             isAdmin={isAdmin}
           />
         )
@@ -207,8 +215,9 @@ export default async function AuctionPage({ params }: Props) {
           {(allMembers ?? []).map((m) => {
             const profile = (m as Record<string, unknown>).profile as Record<string, unknown>
             const uid = String((m as Record<string, unknown>).user_id)
-            const rCount = memberRosterCounts[uid] ?? 0
-            const isComplete = rCount >= 4
+            const dCount = memberDriverCounts[uid] ?? 0
+            const tCount = memberTeamCounts[uid] ?? 0
+            const isComplete = dCount >= 4 && tCount >= 1
             return (
               <div key={uid} className="flex items-center justify-between py-2 border-b border-f1-gray-dark last:border-0">
                 <div className="flex items-center gap-2">
@@ -218,7 +227,7 @@ export default async function AuctionPage({ params }: Props) {
                   {uid === user.id && <Badge variant="red" className="text-[9px]">tu</Badge>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-f1-gray">{rCount}/4 piloti</span>
+                  <span className="text-xs text-f1-gray">{dCount}/4 piloti · {tCount}/1 scuderia</span>
                   <span className="text-xs font-bold text-green-400">
                     {String((m as Record<string, unknown>).credits_left ?? 200)} cr
                   </span>

@@ -92,6 +92,11 @@ export async function closeTeamAuction(auctionId: string) {
   if (!auction) return { error: 'Asta non trovata' }
   if (auction.type !== 'team') return { error: 'Non è un\'asta scuderia' }
 
+  // CRITICAL: Prevent double-close — if already closed, return early
+  if (auction.status === 'closed') {
+    return { success: true, already_closed: true }
+  }
+
   const { data: member } = await admin
     .from('league_members')
     .select('role')
@@ -104,13 +109,21 @@ export async function closeTeamAuction(auctionId: string) {
     return { error: 'Asta non ancora scaduta' }
   }
 
-  await admin
+  // Use conditional update: only close if still active (atomic guard)
+  const { data: closedRows } = await admin
     .from('auction_state')
     .update({ status: 'closed' })
     .eq('id', auctionId)
+    .eq('status', 'active')
+    .select('id')
+
+  // If no rows updated, someone else already closed it
+  if (!closedRows || closedRows.length === 0) {
+    return { success: true, already_closed: true }
+  }
 
   if (auction.leader_user_id) {
-    // Check player doesn't already have a team
+    // Check player doesn't already have a team (idempotency guard)
     const { data: existingTeam } = await admin
       .from('rosters')
       .select('id')
@@ -120,35 +133,47 @@ export async function closeTeamAuction(auctionId: string) {
       .maybeSingle()
 
     if (existingTeam) {
-      return { error: 'Il vincitore ha già una scuderia' }
+      // Already has a team — don't insert or deduct again
+      return { success: true, already_closed: true }
     }
 
-    await admin.from('rosters').insert({
-      league_id: auction.league_id,
-      user_id: auction.leader_user_id,
-      team_id: auction.target_team_id,
-      driver_id: null,
-      purchase_price: auction.current_bid,
-      acquired_via: 'team_auction',
-    })
-
-    // Deduct credits (shared budget)
-    const { data: winnerMember } = await admin
-      .from('league_members')
-      .select('credits_spent, credits_left')
+    // Check if this specific team roster entry already exists
+    const { data: existingTeamRoster } = await admin
+      .from('rosters')
+      .select('id')
       .eq('league_id', auction.league_id)
       .eq('user_id', auction.leader_user_id)
-      .single()
+      .eq('team_id', auction.target_team_id)
+      .maybeSingle()
 
-    if (winnerMember) {
-      await admin
+    if (!existingTeamRoster) {
+      await admin.from('rosters').insert({
+        league_id: auction.league_id,
+        user_id: auction.leader_user_id,
+        team_id: auction.target_team_id,
+        driver_id: null,
+        purchase_price: auction.current_bid,
+        acquired_via: 'team_auction',
+      })
+
+      // Deduct credits (shared budget)
+      const { data: winnerMember } = await admin
         .from('league_members')
-        .update({
-          credits_spent: winnerMember.credits_spent + auction.current_bid,
-          credits_left: winnerMember.credits_left - auction.current_bid,
-        })
+        .select('credits_spent, credits_left')
         .eq('league_id', auction.league_id)
         .eq('user_id', auction.leader_user_id)
+        .single()
+
+      if (winnerMember) {
+        await admin
+          .from('league_members')
+          .update({
+            credits_spent: winnerMember.credits_spent + auction.current_bid,
+            credits_left: winnerMember.credits_left - auction.current_bid,
+          })
+          .eq('league_id', auction.league_id)
+          .eq('user_id', auction.leader_user_id)
+      }
     }
 
     await admin.from('audit_log').insert({

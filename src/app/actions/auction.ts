@@ -99,18 +99,36 @@ export async function placeBid(auctionId: string, amount: number) {
 
   if (!member) return { error: 'Non sei membro di questa lega' }
 
-  const { count: rosterCount } = await admin
+  // Count only DRIVER roster entries (not teams) for driver auction slot validation
+  const isTeamAuction = auction.type === 'team'
+
+  if (isTeamAuction) {
+    // For team auctions, check the user doesn't already have a team
+    const { data: existingTeam } = await admin
+      .from('rosters')
+      .select('id')
+      .eq('league_id', auction.league_id)
+      .eq('user_id', user.id)
+      .not('team_id', 'is', null)
+      .maybeSingle()
+    if (existingTeam) return { error: 'Hai già una scuderia' }
+  }
+
+  // Count driver slots only (where driver_id is not null)
+  const { count: driverCount } = await admin
     .from('rosters')
     .select('*', { count: 'exact', head: true })
     .eq('league_id', auction.league_id)
     .eq('user_id', user.id)
+    .not('driver_id', 'is', null)
 
+  const maxDriverSlots = 4
   const validation = validateAuctionBid(
     amount,
     auction.current_bid,
     member.credits_left,
-    rosterCount ?? 0,
-    4,
+    isTeamAuction ? 0 : (driverCount ?? 0),
+    isTeamAuction ? 1 : maxDriverSlots,
     200
   )
 
@@ -165,6 +183,11 @@ export async function closeAuction(auctionId: string) {
 
   if (!auction) return { error: 'Asta non trovata' }
 
+  // CRITICAL: Prevent double-close — if already closed, return early
+  if (auction.status === 'closed') {
+    return { success: true, already_closed: true }
+  }
+
   const { data: member } = await admin
     .from('league_members')
     .select('role')
@@ -177,36 +200,55 @@ export async function closeAuction(auctionId: string) {
     return { error: 'Asta non ancora scaduta' }
   }
 
-  await admin
+  // Use conditional update: only close if still active (atomic guard)
+  const { data: closedRows } = await admin
     .from('auction_state')
     .update({ status: 'closed' })
     .eq('id', auctionId)
+    .eq('status', 'active')
+    .select('id')
+
+  // If no rows updated, someone else already closed it
+  if (!closedRows || closedRows.length === 0) {
+    return { success: true, already_closed: true }
+  }
 
   if (auction.leader_user_id) {
-    await admin.from('rosters').insert({
-      league_id: auction.league_id,
-      user_id: auction.leader_user_id,
-      driver_id: auction.target_driver_id,
-      purchase_price: auction.current_bid,
-      acquired_via: auction.type === 'initial' ? 'initial_auction' : 'mini_auction',
-    })
-
-    const { data: winnerMember } = await admin
-      .from('league_members')
-      .select('credits_spent, credits_left')
+    // Check if roster entry already exists (idempotency guard)
+    const { data: existingRoster } = await admin
+      .from('rosters')
+      .select('id')
       .eq('league_id', auction.league_id)
       .eq('user_id', auction.leader_user_id)
-      .single()
+      .eq('driver_id', auction.target_driver_id)
+      .maybeSingle()
 
-    if (winnerMember) {
-      await admin
+    if (!existingRoster) {
+      await admin.from('rosters').insert({
+        league_id: auction.league_id,
+        user_id: auction.leader_user_id,
+        driver_id: auction.target_driver_id,
+        purchase_price: auction.current_bid,
+        acquired_via: auction.type === 'initial' ? 'initial_auction' : 'mini_auction',
+      })
+
+      const { data: winnerMember } = await admin
         .from('league_members')
-        .update({
-          credits_spent: winnerMember.credits_spent + auction.current_bid,
-          credits_left: winnerMember.credits_left - auction.current_bid,
-        })
+        .select('credits_spent, credits_left')
         .eq('league_id', auction.league_id)
         .eq('user_id', auction.leader_user_id)
+        .single()
+
+      if (winnerMember) {
+        await admin
+          .from('league_members')
+          .update({
+            credits_spent: winnerMember.credits_spent + auction.current_bid,
+            credits_left: winnerMember.credits_left - auction.current_bid,
+          })
+          .eq('league_id', auction.league_id)
+          .eq('user_id', auction.leader_user_id)
+      }
     }
 
     if (auction.type === 'mini' && auction.drop_driver_user_id && auction.drop_driver_id) {
