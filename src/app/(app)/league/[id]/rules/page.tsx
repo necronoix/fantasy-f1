@@ -59,6 +59,30 @@ export default function RulesPage() {
         </div>
       </section>
 
+      {/* Punteggio Scuderia */}
+      <section className="bg-f1-black-light border border-f1-gray-dark rounded-2xl overflow-hidden">
+        <div className="bg-gradient-to-r from-orange-500/20 to-transparent px-5 py-3 border-b border-f1-gray-dark">
+          <div className="flex items-center gap-2">
+            <Flag className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-black text-white uppercase tracking-wider">Punteggio Scuderia</h3>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-f1-gray-light text-sm leading-relaxed">
+            Ogni giocatore possiede anche <strong className="text-white">1 scuderia</strong> (team F1), che comprende i suoi 2 piloti ufficiali. La scuderia <strong className="text-white">non</strong> occupa uno slot pilota e non può essere scelta come capitano o messa in panchina.
+          </p>
+          <div className="grid grid-cols-1 gap-3">
+            <RuleRow icon="🏎️" title="Come funziona" desc="I punti scuderia sono la somma dei punti individuali dei 2 piloti del team, calcolati con gli stessi criteri standard (qualifica, gara, giro veloce, penalità, DNF/DSQ). NON si applica il moltiplicatore capitano." />
+            <RuleRow icon="📊" title="Indipendente dalla rosa" desc="I punti scuderia si calcolano sempre sui 2 piloti del team reale, indipendentemente dai 4 piloti che hai in rosa. Anche se non possiedi quei piloti, ricevi i loro punti come punteggio scuderia." />
+          </div>
+          <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 mt-3">
+            <p className="text-orange-300 text-xs leading-relaxed">
+              <strong className="text-orange-200">Esempio:</strong> Se possiedi la Haas come scuderia, riceverai come punti scuderia la somma dei punti di Ocon e Bearman in quel GP — indipendentemente da quali piloti hai scelto nella tua rosa.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Qualifica */}
       <section className="bg-f1-black-light border border-f1-gray-dark rounded-2xl overflow-hidden">
         <div className="bg-gradient-to-r from-purple-500/20 to-transparent px-5 py-3 border-b border-f1-gray-dark">

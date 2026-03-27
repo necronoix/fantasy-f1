@@ -77,12 +77,15 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
     </div>
   )
 
-  const starterCount = bench ? roster.filter(r => String((r.driver as Record<string, unknown>)?.id ?? '') !== bench).length : roster.length
+  // Filter out team entries (roster entries without a driver) — only pilots can be benched/captained
+  const driverRoster = roster.filter(r => (r.driver as Record<string, unknown> | null) != null)
+
+  const starterCount = bench ? driverRoster.filter(r => String((r.driver as Record<string, unknown>)?.id ?? '') !== bench).length : driverRoster.length
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
       {/* Bench selection — choose who sits out */}
-      {roster.length >= 4 && (
+      {driverRoster.length >= 4 && (
         <div className="bg-gradient-to-br from-orange-500/10 to-orange-500/5 border border-orange-500/30 rounded-xl p-4 backdrop-blur-sm">
           <label className="text-xs font-semibold text-orange-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <UserMinus className="w-3.5 h-3.5 text-orange-400" />
@@ -92,9 +95,8 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
             Scegli chi mettere in panchina. Se un titolare ha DNC, il panchinaro lo sostituisce ed eredita il ruolo di capitano.
           </p>
           <div className="grid grid-cols-2 gap-2.5">
-            {roster.map((r) => {
+            {driverRoster.map((r) => {
               const driver = r.driver as Record<string, unknown>
-              if (!driver) return null
               const team = driver.team as Record<string, unknown>
               const teamColor = String(team?.color ?? '#888')
               const driverId = String(driver.id)
@@ -132,9 +134,8 @@ export function GpSelectionForm({ leagueId, gpId, roster, selection, allDrivers 
           Capitano (×2 punti) — solo tra i titolari
         </label>
         <div className="grid grid-cols-2 gap-3">
-          {roster.map((r) => {
+          {driverRoster.map((r) => {
             const driver = r.driver as Record<string, unknown>
-            if (!driver) return null
             const team = driver.team as Record<string, unknown>
             const teamColor = String(team?.color ?? '#888')
             const driverId = String(driver.id)

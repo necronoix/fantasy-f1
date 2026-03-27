@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Gavel, Trophy, Users, ArrowLeftRight, CalendarDays, Settings, BookOpen } from 'lucide-react'
+import { Gavel, Trophy, Users, ArrowLeftRight, CalendarDays, Settings, BookOpen, Car } from 'lucide-react'
 
 interface LeagueNavProps {
   leagueId: string
@@ -18,6 +18,7 @@ export function LeagueNav({ leagueId, isAdmin }: LeagueNavProps) {
     { href: base, label: 'Overview', icon: Users, exact: true },
     { href: `${base}/auction`, label: 'Asta', icon: Gavel, exact: false },
     { href: `${base}/roster`, label: 'Rosa', icon: CalendarDays, exact: false },
+    { href: `${base}/teams`, label: 'Scuderie', icon: Car, exact: false },
     { href: `${base}/gp`, label: 'GP', icon: CalendarDays, exact: false },
     { href: `${base}/standings`, label: 'Classifica', icon: Trophy, exact: false },
     { href: `${base}/trades`, label: 'Scambi', icon: ArrowLeftRight, exact: false },

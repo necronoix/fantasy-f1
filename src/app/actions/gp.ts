@@ -6,6 +6,194 @@ import { computeGpScore, computeTeamScore } from '@/lib/scoring'
 import { isPredictionLocked } from '@/lib/utils'
 import type { GpResultsData, GpPredictions, ScoringRulesData } from '@/lib/types'
 
+export async function resetGpStatus(
+  leagueId: string,
+  gpId: string,
+  newStatus: 'upcoming' | 'qualifying' | 'race'
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può resettare lo stato del GP' }
+
+  const { error } = await admin
+    .from('grands_prix')
+    .update({ status: newStatus })
+    .eq('id', gpId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: 'gp_status_reset',
+    details_json: { gp_id: gpId, new_status: newStatus },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp`)
+  revalidatePath(`/league/${leagueId}/gp/${gpId}`)
+  return { success: true }
+}
+
+export async function toggleSelectionsLock(leagueId: string, lock: boolean) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può bloccare le selezioni' }
+
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const currentSettings = (league?.settings_json as Record<string, unknown>) ?? {}
+  const newSettings = { ...currentSettings, selections_locked: lock }
+
+  const { error } = await admin
+    .from('leagues')
+    .update({ settings_json: newSettings })
+    .eq('id', leagueId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: lock ? 'selections_locked' : 'selections_unlocked',
+    details_json: { locked: lock },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp`)
+  return { success: true }
+}
+
+/* ── setGpLock — lock/unlock specific GPs ────────────────── */
+export async function setGpLock(leagueId: string, gpIds: string[], lock: boolean) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può bloccare i GP' }
+
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const currentSettings = (league?.settings_json as Record<string, unknown>) ?? {}
+  const currentLockedIds: string[] = (currentSettings.locked_gp_ids as string[]) ?? []
+
+  const newLockedIds = lock
+    ? [...new Set([...currentLockedIds, ...gpIds])]
+    : currentLockedIds.filter((id: string) => !gpIds.includes(id))
+
+  const { error } = await admin
+    .from('leagues')
+    .update({ settings_json: { ...currentSettings, locked_gp_ids: newLockedIds } })
+    .eq('id', leagueId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: lock ? 'gp_locked' : 'gp_unlocked',
+    details_json: { gp_ids: gpIds },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp`)
+  return { success: true, lockedIds: newLockedIds }
+}
+
+/* ── setPermanentGpLock — permanent lock/unlock a GP ─────── */
+export async function setPermanentGpLock(
+  leagueId: string,
+  gpId: string,
+  reason: 'completed' | 'cancelled' | 'postponed' | null
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può impostare blocchi permanenti' }
+
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const currentSettings = (league?.settings_json as Record<string, unknown>) ?? {}
+  const permanentLocks = { ...((currentSettings.permanently_locked_gps as Record<string, unknown>) ?? {}) }
+
+  if (reason === null) {
+    delete permanentLocks[gpId]
+  } else {
+    permanentLocks[gpId] = { reason, locked_at: new Date().toISOString() }
+  }
+
+  const { error } = await admin
+    .from('leagues')
+    .update({ settings_json: { ...currentSettings, permanently_locked_gps: permanentLocks } })
+    .eq('id', leagueId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: reason ? 'gp_permanent_lock' : 'gp_permanent_unlock',
+    details_json: { gp_id: gpId, reason },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp`)
+  return { success: true }
+}
+
 export async function setCaptainAndPredictions(
   leagueId: string,
   gpId: string,
@@ -18,6 +206,31 @@ export async function setCaptainAndPredictions(
   if (!user) return { error: 'Non autorizzato' }
 
   const admin = createAdminClient()
+
+  // Check if admin has locked all selections
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const settings = (league?.settings_json as Record<string, unknown>) ?? {}
+  if (settings.selections_locked === true) {
+    return { error: '🔒 Le selezioni sono bloccate dall\'admin della lega' }
+  }
+
+  // Per-GP temporary lock
+  const lockedGpIds = (settings.locked_gp_ids as string[]) ?? []
+  if (lockedGpIds.includes(gpId)) {
+    return { error: '🔒 Questo GP è bloccato dall\'admin' }
+  }
+
+  // Per-GP permanent lock
+  const permanentLocks = (settings.permanently_locked_gps as Record<string, { reason: string }>) ?? {}
+  if (permanentLocks[gpId]) {
+    const reasonMap: Record<string, string> = { completed: 'già concluso', cancelled: 'annullato', postponed: 'rimandato' }
+    return { error: `🔒 Questo GP è bloccato permanentemente (${reasonMap[permanentLocks[gpId].reason] ?? permanentLocks[gpId].reason})` }
+  }
 
   const { data: ownedDriver } = await admin
     .from('rosters')
