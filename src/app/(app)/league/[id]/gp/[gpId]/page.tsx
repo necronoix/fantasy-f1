@@ -10,6 +10,7 @@ import { GpHeader } from '@/components/f1/GpHeader'
 import { Star, Trophy, Target, CheckCircle, XCircle } from 'lucide-react'
 import { isPredictionLocked, formatDateTime } from '@/lib/utils'
 import type { ScoreBreakdown, GpPredictions } from '@/lib/types'
+import { LiveCountdown } from '@/components/league/AdminGpManager'
 
 interface Props { params: Promise<{ id: string; gpId: string }> }
 
@@ -50,6 +51,17 @@ export default async function GpPage({ params }: Props) {
   for (const d of allDrivers ?? []) {
     driverMap.set(String(d.id), String(d.short_name ?? d.id))
   }
+
+  // Get deadline for this GP
+  const { data: leagueForDeadline } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', id)
+    .single()
+  const leagueSettings = (leagueForDeadline?.settings_json as Record<string, unknown>) ?? {}
+  const gpDeadlines = (leagueSettings.gp_deadlines as Record<string, string>) ?? {}
+  const gpDeadline = gpDeadlines[gpId] ?? null
+  const isDeadlinePassed = gpDeadline ? new Date(gpDeadline) < new Date() : false
 
   // Get GP results for prediction checking and admin edit
   const { data: gpResult } = await admin
@@ -93,6 +105,11 @@ export default async function GpPage({ params }: Props) {
       />
 
       <LeagueNav leagueId={id} isAdmin={isAdmin} />
+
+      {/* Live countdown if deadline is set and GP not completed */}
+      {gpDeadline && !isCompleted && (
+        <LiveCountdown deadline={gpDeadline} />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Captain & Predictions */}

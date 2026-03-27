@@ -4,9 +4,11 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, Settings, Lock } from 'lucide-react'
+import { ChevronRight, Settings, Lock, Clock, Users } from 'lucide-react'
 import { AdminLockToggle, ResetGpButton, GpLockPanel } from '@/components/league/AdminControls'
 import type { GpInfo } from '@/components/league/AdminControls'
+import { DeadlinePicker, PlayerSelectionStatus } from '@/components/league/AdminGpManager'
+import { getPlayersSelectionStatus } from '@/app/actions/gp'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -62,6 +64,33 @@ export default async function AdminPage({ params }: Props) {
     date: String(gp.date),
   }))
 
+  // GP deadlines
+  const gpDeadlines = (settings.gp_deadlines as Record<string, string>) ?? {}
+  const gpDeadlineList = gpInfoList.map(gp => ({
+    ...gp,
+    deadline: gpDeadlines[gp.id] ?? null,
+  }))
+
+  // Find next upcoming GP for player status
+  const now = new Date()
+  const nextGp = (allGps ?? []).find(gp => new Date(String(gp.date)) >= now && String(gp.status) !== 'completed')
+  const nextGpId = nextGp ? String(nextGp.id) : null
+  const nextGpName = nextGp ? String(nextGp.name) : null
+
+  // Get player selection status for next GP
+  let playerStatuses: Awaited<ReturnType<typeof getPlayersSelectionStatus>> = []
+  if (nextGpId) {
+    playerStatuses = await getPlayersSelectionStatus(id, nextGpId)
+  }
+
+  // Get all drivers for admin edit
+  const { data: allDriversForAdmin } = await admin
+    .from('drivers')
+    .select('id, name, short_name')
+    .eq('season_id', 2026)
+    .eq('active', true)
+    .order('name')
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2">
@@ -110,6 +139,50 @@ export default async function AdminPage({ params }: Props) {
           permanentlyLockedGps={permanentlyLockedGps}
         />
       </Card>
+
+      {/* ── SCADENZE GP ─────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-yellow-400" />
+            Scadenze Selezioni
+          </CardTitle>
+          <Badge variant="red">Admin</Badge>
+        </CardHeader>
+        <p className="text-f1-gray text-xs mb-3">
+          Imposta una data e un orario entro cui i giocatori devono salvare capitano, panchina e scommesse.
+          Un countdown LIVE apparirà nella pagina del GP.
+        </p>
+        <DeadlinePicker leagueId={id} gps={gpDeadlineList} />
+      </Card>
+
+      {/* ── STATO SELEZIONI GIOCATORI ─────────────── */}
+      {nextGpId && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-400" />
+              Stato Selezioni — {nextGpName}
+            </CardTitle>
+            <Badge variant="red">Admin</Badge>
+          </CardHeader>
+          <p className="text-f1-gray text-xs mb-3">
+            Verifica chi ha impostato capitano, panchina e scommesse per il prossimo GP.
+            Espandi un giocatore per impostare la formazione al suo posto.
+          </p>
+          <div className="flex items-center gap-4 mb-3 text-[10px] text-f1-gray uppercase tracking-widest font-bold">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500/30 inline-block" /> Impostato</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500/30 inline-block" /> Mancante</span>
+          </div>
+          <PlayerSelectionStatus
+            leagueId={id}
+            gpId={nextGpId}
+            gpName={nextGpName ?? ''}
+            players={playerStatuses as any}
+            allDrivers={(allDriversForAdmin ?? []) as any}
+          />
+        </Card>
+      )}
 
       {/* ── RISULTATI GP ───────────────────────────────── */}
       <Card>
@@ -203,6 +276,9 @@ async function AuditLog({ leagueId }: { leagueId: string }) {
       gp_unlocked: '🔓 GP sbloccati',
       gp_permanent_lock: '🔒 Blocco permanente GP',
       gp_permanent_unlock: '🔓 Blocco permanente rimosso',
+      gp_deadline_set: '⏰ Scadenza GP impostata',
+      gp_deadline_removed: '⏰ Scadenza GP rimossa',
+      admin_set_selection: '👑 Selezione impostata per giocatore',
     }
     return labels[action] ?? action
   }

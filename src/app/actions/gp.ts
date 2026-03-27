@@ -232,6 +232,12 @@ export async function setCaptainAndPredictions(
     return { error: `🔒 Questo GP è bloccato permanentemente (${reasonMap[permanentLocks[gpId].reason] ?? permanentLocks[gpId].reason})` }
   }
 
+  // Check admin-set deadline
+  const deadlines = (settings.gp_deadlines as Record<string, string>) ?? {}
+  if (deadlines[gpId] && new Date(deadlines[gpId]) < new Date()) {
+    return { error: '⏰ Il tempo per le selezioni è scaduto!' }
+  }
+
   const { data: ownedDriver } = await admin
     .from('rosters')
     .select('id')
@@ -462,6 +468,183 @@ export async function getGpWithSelection(leagueId: string, gpId: string, userId:
     scores: scoresRes.data ?? [],
     allSelections: allSelectionsRes.data ?? [],
   }
+}
+
+/* ── setGpDeadline — admin sets a deadline for selections ────── */
+export async function setGpDeadline(
+  leagueId: string,
+  gpId: string,
+  deadline: string | null // ISO string or null to remove
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può impostare le scadenze' }
+
+  const { data: league } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', leagueId)
+    .single()
+
+  const currentSettings = (league?.settings_json as Record<string, unknown>) ?? {}
+  const deadlines = { ...((currentSettings.gp_deadlines as Record<string, string>) ?? {}) }
+
+  if (deadline === null) {
+    delete deadlines[gpId]
+  } else {
+    deadlines[gpId] = deadline
+  }
+
+  const { error } = await admin
+    .from('leagues')
+    .update({ settings_json: { ...currentSettings, gp_deadlines: deadlines } })
+    .eq('id', leagueId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: deadline ? 'gp_deadline_set' : 'gp_deadline_removed',
+    details_json: { gp_id: gpId, deadline },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp`)
+  revalidatePath(`/league/${leagueId}/gp/${gpId}`)
+  return { success: true }
+}
+
+/* ── adminSetSelection — admin sets captain/bench/predictions for a player ── */
+export async function adminSetSelection(
+  leagueId: string,
+  gpId: string,
+  targetUserId: string,
+  captainDriverId: string,
+  predictions: GpPredictions,
+  benchDriverId?: string
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può impostare le selezioni' }
+
+  // Verify target user owns this driver
+  const { data: ownedDriver } = await admin
+    .from('rosters')
+    .select('id')
+    .eq('league_id', leagueId)
+    .eq('user_id', targetUserId)
+    .eq('driver_id', captainDriverId)
+    .maybeSingle()
+
+  if (!ownedDriver) return { error: 'Il giocatore non possiede questo pilota' }
+
+  const { error } = await admin
+    .from('gp_selections')
+    .upsert(
+      {
+        league_id: leagueId,
+        gp_id: gpId,
+        user_id: targetUserId,
+        captain_driver_id: captainDriverId,
+        bench_driver_id: benchDriverId ?? null,
+        predictions_json: predictions,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'league_id,gp_id,user_id' }
+    )
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: 'admin_set_selection',
+    details_json: { gp_id: gpId, target_user_id: targetUserId, captain: captainDriverId },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  revalidatePath(`/league/${leagueId}/gp/${gpId}`)
+  return { success: true }
+}
+
+/* ── getPlayersSelectionStatus — admin view of all players' selection status ── */
+export async function getPlayersSelectionStatus(leagueId: string, gpId: string) {
+  const admin = createAdminClient()
+
+  const { data: members } = await admin
+    .from('league_members')
+    .select('user_id')
+    .eq('league_id', leagueId)
+
+  if (!members) return []
+
+  const { data: selections } = await admin
+    .from('gp_selections')
+    .select('user_id, captain_driver_id, bench_driver_id, predictions_json')
+    .eq('league_id', leagueId)
+    .eq('gp_id', gpId)
+
+  const { data: profiles } = await admin
+    .from('profiles')
+    .select('id, display_name')
+
+  const { data: rosters } = await admin
+    .from('rosters')
+    .select('user_id, driver_id, team_id, driver:drivers(id, name, short_name)')
+    .eq('league_id', leagueId)
+
+  const profileMap = new Map((profiles ?? []).map(p => [p.id, p.display_name]))
+  const selectionMap = new Map((selections ?? []).map(s => [s.user_id, s]))
+  const rosterMap = new Map<string, Array<{ driver_id: string; name: string; short_name: string }>>()
+  for (const r of rosters ?? []) {
+    if (!r.driver_id) continue
+    const driver = r.driver as { id: string; name: string; short_name: string } | null
+    if (!driver) continue
+    const arr = rosterMap.get(r.user_id) ?? []
+    arr.push({ driver_id: r.driver_id, name: driver.name, short_name: driver.short_name })
+    rosterMap.set(r.user_id, arr)
+  }
+
+  return members.map(m => {
+    const sel = selectionMap.get(m.user_id) as Record<string, unknown> | undefined
+    const preds = (sel?.predictions_json ?? {}) as Record<string, unknown>
+    const drivers = rosterMap.get(m.user_id) ?? []
+
+    return {
+      user_id: m.user_id,
+      display_name: profileMap.get(m.user_id) ?? '?',
+      has_captain: !!sel?.captain_driver_id,
+      captain_driver_id: sel?.captain_driver_id as string | null ?? null,
+      has_bench: !!sel?.bench_driver_id,
+      bench_driver_id: sel?.bench_driver_id as string | null ?? null,
+      has_predictions: !!(preds.pole_driver_id || preds.winner_driver_id || preds.fastest_lap_driver_id || preds.safety_car !== undefined),
+      predictions: preds,
+      drivers,
+    }
+  })
 }
 
 export async function getStandings(leagueId: string) {
