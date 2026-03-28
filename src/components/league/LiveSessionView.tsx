@@ -228,12 +228,26 @@ export function LiveSessionView({
       }
 
       setPositions(mapped)
-      setEditMode(true)
-      toast.success(`${mapped.length} posizioni importate! Verifica e salva.`)
 
       if (data.unmapped_count > 0) {
         const names = data.unmapped_drivers.map((u: { code: string; number: number }) => `${u.code}#${u.number}`).join(', ')
         toast(`${data.unmapped_count} piloti non mappati: ${names}`, { icon: '⚠️' })
+      }
+
+      // Auto-save to DB so results appear immediately
+      const entries: LiveQualifyingEntry[] = mapped.map((p: { driver_id: string; position: number }) => ({
+        driver_id: p.driver_id,
+        position: p.position,
+      }))
+
+      const saveRes = await updateLiveQualifying(leagueId, gpId, entries)
+      if (saveRes?.error) {
+        toast.error(`Importati ma errore salvataggio: ${saveRes.error}`)
+        setEditMode(true)
+      } else {
+        toast.success(`${mapped.length} posizioni importate e salvate! I punteggi sono visibili nei tab.`)
+        setEditMode(false)
+        refreshData()
       }
     } catch (e) {
       toast.error('Errore connessione API')
@@ -375,6 +389,19 @@ export function LiveSessionView({
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── No data message ── */}
+      {!hasData && isActive && (
+        <div className="text-center py-8 space-y-3 bg-f1-gray-dark/30 rounded-xl border border-f1-gray-dark">
+          <p className="text-f1-gray text-sm">Nessun dato di qualifica inserito ancora.</p>
+          {isAdmin && (
+            <p className="text-f1-gray-light text-xs">
+              Usa <span className="text-cyan-300 font-bold">Importa da API</span> per caricare i risultati automaticamente,
+              oppure <span className="text-yellow-300 font-bold">Modifica posizioni</span> per inserirli manualmente.
+            </p>
           )}
         </div>
       )}
