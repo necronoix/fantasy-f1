@@ -1,153 +1,153 @@
 /**
- * OpenF1 API client
- * Free API for real-time and historical F1 data
- * Docs: https://openf1.org
+ * F1 Data API client
+ * Uses Jolpica (Ergast replacement) — free, reliable, has 2026 data
+ * Docs: https://github.com/jolpica/jolpica-f1
+ *
+ * Fallback: OpenF1 (currently down/no 2026 data)
  */
 
-const BASE_URL = 'https://api.openf1.org/v1'
+const JOLPICA_BASE = 'https://api.jolpi.ca/ergast/f1'
 
 /* ── Types ── */
-export interface OpenF1Session {
-  session_key: number
-  session_name: string // "Qualifying", "Race", "Sprint", "Practice 1", etc.
-  session_type: string // "Qualifying", "Race", etc.
-  date_start: string
-  date_end: string
-  circuit_short_name: string
-  country_name: string
-  year: number
-  meeting_key: number
-}
-
-export interface OpenF1Position {
-  session_key: number
+export interface QualifyingResult {
   driver_number: number
+  driver_code: string // "VER", "NOR", etc.
+  driver_name: string // "Max Verstappen"
   position: number
-  date: string // ISO timestamp
+  constructor_name: string
+  q1_time?: string
+  q2_time?: string
+  q3_time?: string
 }
 
-export interface OpenF1Driver {
-  session_key: number
-  driver_number: number
-  full_name: string
-  name_acronym: string // "VER", "NOR", etc.
-  team_name: string
+export interface RaceInfo {
+  season: string
+  round: string
+  raceName: string
+  circuitName: string
+  country: string
+  date: string
 }
 
 /* ── API Functions ── */
 
 /**
- * Get the latest qualifying session for a given year
+ * Get qualifying results for the latest race of the season
  */
-export async function getLatestQualifyingSession(year: number = 2026): Promise<OpenF1Session | null> {
+export async function getLatestQualifying(season: string = 'current'): Promise<{
+  race: RaceInfo | null
+  results: QualifyingResult[]
+}> {
   try {
     const res = await fetch(
-      `${BASE_URL}/sessions?year=${year}&session_type=Qualifying&order=-date_start&limit=1`,
-      { next: { revalidate: 60 } }
+      `${JOLPICA_BASE}/${season}/last/qualifying.json`,
+      { cache: 'no-store' }
     )
-    if (!res.ok) return null
+    if (!res.ok) return { race: null, results: [] }
+
     const data = await res.json()
-    return data[0] ?? null
-  } catch {
-    return null
-  }
-}
+    const races = data?.MRData?.RaceTable?.Races ?? []
+    if (races.length === 0) return { race: null, results: [] }
 
-/**
- * Get a specific qualifying session by meeting key
- */
-export async function getQualifyingSession(meetingKey: number): Promise<OpenF1Session | null> {
-  try {
-    const res = await fetch(
-      `${BASE_URL}/sessions?meeting_key=${meetingKey}&session_type=Qualifying`,
-      { next: { revalidate: 60 } }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    return data[0] ?? null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Get current positions for a session
- * Returns the latest position for each driver
- */
-export async function getSessionPositions(sessionKey: number): Promise<OpenF1Position[]> {
-  try {
-    const res = await fetch(
-      `${BASE_URL}/position?session_key=${sessionKey}`,
-      { cache: 'no-store' } // Always fetch fresh during live
-    )
-    if (!res.ok) return []
-    const data: OpenF1Position[] = await res.json()
-
-    // OpenF1 returns all position updates — get only the latest per driver
-    const latestByDriver = new Map<number, OpenF1Position>()
-    for (const pos of data) {
-      const existing = latestByDriver.get(pos.driver_number)
-      if (!existing || new Date(pos.date) > new Date(existing.date)) {
-        latestByDriver.set(pos.driver_number, pos)
-      }
+    const race = races[0]
+    return {
+      race: {
+        season: race.season,
+        round: race.round,
+        raceName: race.raceName,
+        circuitName: race.Circuit?.circuitName ?? '',
+        country: race.Circuit?.Location?.country ?? '',
+        date: race.date,
+      },
+      results: (race.QualifyingResults ?? []).map((q: Record<string, unknown>) => ({
+        driver_number: Number(q.number),
+        driver_code: String((q.Driver as Record<string, unknown>)?.code ?? ''),
+        driver_name: `${(q.Driver as Record<string, unknown>)?.givenName ?? ''} ${(q.Driver as Record<string, unknown>)?.familyName ?? ''}`.trim(),
+        position: Number(q.position),
+        constructor_name: String((q.Constructor as Record<string, unknown>)?.name ?? ''),
+        q1_time: (q as Record<string, unknown>).Q1 ? String((q as Record<string, unknown>).Q1) : undefined,
+        q2_time: (q as Record<string, unknown>).Q2 ? String((q as Record<string, unknown>).Q2) : undefined,
+        q3_time: (q as Record<string, unknown>).Q3 ? String((q as Record<string, unknown>).Q3) : undefined,
+      })),
     }
-
-    return [...latestByDriver.values()].sort((a, b) => a.position - b.position)
   } catch {
-    return []
+    return { race: null, results: [] }
   }
 }
 
 /**
- * Get drivers for a session (for mapping driver_number to names)
+ * Get qualifying results for a specific round
  */
-export async function getSessionDrivers(sessionKey: number): Promise<OpenF1Driver[]> {
+export async function getQualifyingByRound(season: string, round: number): Promise<{
+  race: RaceInfo | null
+  results: QualifyingResult[]
+}> {
   try {
     const res = await fetch(
-      `${BASE_URL}/drivers?session_key=${sessionKey}`,
-      { next: { revalidate: 300 } }
+      `${JOLPICA_BASE}/${season}/${round}/qualifying.json`,
+      { cache: 'no-store' }
     )
-    if (!res.ok) return []
-    return await res.json()
-  } catch {
-    return []
-  }
-}
+    if (!res.ok) return { race: null, results: [] }
 
-/**
- * Get all sessions for a meeting (race weekend)
- */
-export async function getMeetingSessions(meetingKey: number): Promise<OpenF1Session[]> {
-  try {
-    const res = await fetch(
-      `${BASE_URL}/sessions?meeting_key=${meetingKey}`,
-      { next: { revalidate: 60 } }
-    )
-    if (!res.ok) return []
-    return await res.json()
-  } catch {
-    return []
-  }
-}
-
-/**
- * Search sessions by country/circuit
- */
-export async function findSession(
-  year: number,
-  sessionType: string,
-  countryName?: string
-): Promise<OpenF1Session | null> {
-  try {
-    let url = `${BASE_URL}/sessions?year=${year}&session_type=${sessionType}`
-    if (countryName) url += `&country_name=${encodeURIComponent(countryName)}`
-    url += '&order=-date_start&limit=1'
-
-    const res = await fetch(url, { next: { revalidate: 60 } })
-    if (!res.ok) return null
     const data = await res.json()
-    return data[0] ?? null
+    const races = data?.MRData?.RaceTable?.Races ?? []
+    if (races.length === 0) return { race: null, results: [] }
+
+    const race = races[0]
+    return {
+      race: {
+        season: race.season,
+        round: race.round,
+        raceName: race.raceName,
+        circuitName: race.Circuit?.circuitName ?? '',
+        country: race.Circuit?.Location?.country ?? '',
+        date: race.date,
+      },
+      results: (race.QualifyingResults ?? []).map((q: Record<string, unknown>) => ({
+        driver_number: Number(q.number),
+        driver_code: String((q.Driver as Record<string, unknown>)?.code ?? ''),
+        driver_name: `${(q.Driver as Record<string, unknown>)?.givenName ?? ''} ${(q.Driver as Record<string, unknown>)?.familyName ?? ''}`.trim(),
+        position: Number(q.position),
+        constructor_name: String((q.Constructor as Record<string, unknown>)?.name ?? ''),
+        q1_time: (q as Record<string, unknown>).Q1 ? String((q as Record<string, unknown>).Q1) : undefined,
+        q2_time: (q as Record<string, unknown>).Q2 ? String((q as Record<string, unknown>).Q2) : undefined,
+        q3_time: (q as Record<string, unknown>).Q3 ? String((q as Record<string, unknown>).Q3) : undefined,
+      })),
+    }
   } catch {
-    return null
+    return { race: null, results: [] }
+  }
+}
+
+/**
+ * Get all races for a season (to find round numbers)
+ */
+export async function getSeasonSchedule(season: string = 'current'): Promise<Array<{
+  round: string
+  raceName: string
+  circuitId: string
+  country: string
+  date: string
+}>> {
+  try {
+    const res = await fetch(
+      `${JOLPICA_BASE}/${season}.json`,
+      { next: { revalidate: 3600 } }
+    )
+    if (!res.ok) return []
+
+    const data = await res.json()
+    const races = data?.MRData?.RaceTable?.Races ?? []
+    return races.map((r: Record<string, unknown>) => ({
+      round: String(r.round),
+      raceName: String(r.raceName),
+      circuitId: String((r.Circuit as Record<string, unknown>)?.circuitId ?? ''),
+      country: String((r.Circuit as Record<string, unknown>)?.Location
+        ? ((r.Circuit as Record<string, unknown>).Location as Record<string, unknown>)?.country ?? ''
+        : ''),
+      date: String(r.date),
+    }))
+  } catch {
+    return []
   }
 }

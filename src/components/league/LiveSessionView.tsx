@@ -207,6 +207,10 @@ export function LiveSessionView({
         return
       }
 
+      if (data.race) {
+        toast(`Dati: ${data.race.name} (R${data.race.round})`, { icon: '🏎️', duration: 4000 })
+      }
+
       // Map API positions to our format
       const mapped = data.positions
         .filter((p: { mapped: boolean }) => p.mapped)
@@ -223,13 +227,14 @@ export function LiveSessionView({
 
       setPositions(mapped)
       setEditMode(true)
-      toast.success(`${mapped.length} posizioni importate da OpenF1! Verifica e salva.`)
+      toast.success(`${mapped.length} posizioni importate! Verifica e salva.`)
 
       if (data.unmapped_count > 0) {
-        toast(`${data.unmapped_count} piloti non mappati (numeri: ${data.unmapped_drivers.join(', ')})`, { icon: '⚠️' })
+        const names = data.unmapped_drivers.map((u: { code: string; number: number }) => `${u.code}#${u.number}`).join(', ')
+        toast(`${data.unmapped_count} piloti non mappati: ${names}`, { icon: '⚠️' })
       }
     } catch (e) {
-      toast.error('Errore connessione API OpenF1')
+      toast.error('Errore connessione API')
     }
     setApiLoading(false)
   }
