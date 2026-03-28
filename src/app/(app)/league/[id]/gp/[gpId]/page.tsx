@@ -190,7 +190,7 @@ export default async function GpPage({ params }: Props) {
                 const isMe = (score as Record<string, unknown>).user_id === user.id
                 const breakdown = (score as Record<string, unknown>).breakdown_json as ScoreBreakdown
                 const predPts = breakdown?.predictions_pts ?? 0
-                const rosterPts = breakdown?.roster_pts ?? 0
+                const rosterPts = breakdown?.drivers?.reduce((sum, d) => sum + d.subtotal, 0) ?? 0
                 const totalScore = Number((score as Record<string, unknown>).total_points ?? 0)
 
                 let rowBg = 'bg-f1-gray-dark/30 border-l-4 border-white/20'

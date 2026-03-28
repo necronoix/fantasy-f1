@@ -84,7 +84,7 @@ export default async function RosterPage({ params }: Props) {
       <div className="relative overflow-hidden">
         {/* Decorative car silhouette */}
         <div className="absolute -right-20 -top-16 opacity-5 pointer-events-none">
-          <TeamCarSilhouette size={80} />
+          <TeamCarSilhouette teamId="generic" size={80} />
         </div>
         <div className="relative z-10">
           <div className="absolute left-0 top-0 w-2 h-12 bg-gradient-to-b from-f1-red to-f1-red/20 rounded-r-full" />

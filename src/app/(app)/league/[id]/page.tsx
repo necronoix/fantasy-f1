@@ -199,8 +199,8 @@ export default async function LeaguePage({ params }: Props) {
               </div>
               <div className="flex items-center justify-between text-xs gap-2">
                 <span className="text-f1-gray"><span className="text-white font-bold">{new Date(String((nextGp as Record<string, unknown>).date)).toLocaleDateString('it-IT', { day: '2-digit', month: 'long' })}</span></span>
-                {(nextGp as Record<string, unknown>).has_sprint && (
-                  <Badge variant="yellow" className="ml-auto font-black">⚡ SPRINT</Badge>
+                {Boolean((nextGp as Record<string, unknown>).has_sprint) && (
+                  <Badge variant="yellow" className="ml-auto font-black">SPRINT</Badge>
                 )}
               </div>
             </div>
