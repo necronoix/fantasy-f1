@@ -204,7 +204,57 @@ export async function confirmLiveResults(leagueId: string, gpId: string) {
     return { error: 'Nessun dato live da confermare' }
   }
 
-  // Mark as final
+  // ── Save qualifying results to gp_results ──
+  // Check if gp_results already exists (may have partial race data)
+  const { data: existingResult } = await admin
+    .from('gp_results')
+    .select('results_json')
+    .eq('league_id', leagueId)
+    .eq('gp_id', gpId)
+    .maybeSingle()
+
+  const existingResultsJson = (existingResult?.results_json as Record<string, unknown>) ?? {}
+
+  // Build qualifying_order for official results
+  const officialQualOrder = session.qualifying_order.map(e => ({
+    driver_id: e.driver_id,
+    position: e.position,
+    ...(e.q1_time ? { q1_time: e.q1_time } : {}),
+    ...(e.q2_time ? { q2_time: e.q2_time } : {}),
+    ...(e.q3_time ? { q3_time: e.q3_time } : {}),
+  }))
+
+  // Merge: keep existing race_order if it exists, update qualifying_order
+  const mergedResults = {
+    ...existingResultsJson,
+    qualifying_order: officialQualOrder,
+    race_order: existingResultsJson.race_order ?? [],
+    safety_car: existingResultsJson.safety_car ?? false,
+  }
+
+  const { error: upsertError } = await admin
+    .from('gp_results')
+    .upsert(
+      {
+        league_id: leagueId,
+        gp_id: gpId,
+        results_json: mergedResults,
+        submitted_by: user.id,
+        submitted_at: new Date().toISOString(),
+      },
+      { onConflict: 'league_id,gp_id' }
+    )
+
+  if (upsertError) return { error: `Errore salvataggio risultati: ${upsertError.message}` }
+
+  // Update GP status to 'qualifying' (not 'completed' — race hasn't happened)
+  await admin
+    .from('grands_prix')
+    .update({ status: 'qualifying' })
+    .eq('id', gpId)
+    .in('status', ['upcoming']) // Only update if still upcoming
+
+  // Mark live session as final
   liveSessions[gpId] = { ...session, is_final: true, is_active: false, updated_at: new Date().toISOString() }
   await admin
     .from('leagues')
@@ -220,6 +270,7 @@ export async function confirmLiveResults(leagueId: string, gpId: string) {
 
   revalidatePath(`/league/${leagueId}/gp/${gpId}/live`)
   revalidatePath(`/league/${leagueId}/gp/${gpId}`)
+  revalidatePath(`/league/${leagueId}`)
   return { success: true }
 }
 

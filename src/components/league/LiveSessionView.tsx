@@ -176,14 +176,62 @@ export function LiveSessionView({
 
   // ── Admin: confirm results ──
   function handleConfirm() {
+    if (!confirm('Confermare i risultati come definitivi? Verranno salvati nei risultati ufficiali del GP.')) return
     startTransition(async () => {
       const res = await confirmLiveResults(leagueId, gpId)
       if (res?.error) toast.error(res.error)
       else {
-        toast.success('Risultati confermati come definitivi!')
+        toast.success('Risultati confermati e salvati nei risultati ufficiali!')
         refreshData()
       }
     })
+  }
+
+  // ── Admin: import from OpenF1 API ──
+  const [apiLoading, setApiLoading] = useState(false)
+  async function handleImportFromApi() {
+    setApiLoading(true)
+    try {
+      const res = await fetch('/api/openf1')
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        toast.error(data.error || 'Errore nel fetch da OpenF1')
+        setApiLoading(false)
+        return
+      }
+
+      if (!data.positions || data.positions.length === 0) {
+        toast.error('Nessun dato di posizione disponibile dall\'API')
+        setApiLoading(false)
+        return
+      }
+
+      // Map API positions to our format
+      const mapped = data.positions
+        .filter((p: { mapped: boolean }) => p.mapped)
+        .map((p: { driver_id: string; position: number }) => ({
+          driver_id: p.driver_id,
+          position: p.position,
+        }))
+
+      if (mapped.length === 0) {
+        toast.error('Nessun pilota mappato trovato')
+        setApiLoading(false)
+        return
+      }
+
+      setPositions(mapped)
+      setEditMode(true)
+      toast.success(`${mapped.length} posizioni importate da OpenF1! Verifica e salva.`)
+
+      if (data.unmapped_count > 0) {
+        toast(`${data.unmapped_count} piloti non mappati (numeri: ${data.unmapped_drivers.join(', ')})`, { icon: '⚠️' })
+      }
+    } catch (e) {
+      toast.error('Errore connessione API OpenF1')
+    }
+    setApiLoading(false)
   }
 
   // ── Admin: add/update position ──
@@ -264,6 +312,17 @@ export function LiveSessionView({
             <button onClick={() => refreshData()} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-f1-gray-mid hover:border-white/30 text-f1-gray hover:text-white text-sm transition-all">
               <RefreshCw className="w-3.5 h-3.5" /> Aggiorna
             </button>
+            {(isActive || (!isFinal && !isActive)) && (
+              <button onClick={handleImportFromApi} disabled={apiLoading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-cyan-500/40 hover:border-cyan-400/60 bg-cyan-500/10 text-cyan-300 hover:text-cyan-200 text-sm font-semibold transition-all disabled:opacity-40">
+                {apiLoading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Flag className="w-3.5 h-3.5" />
+                )}
+                {apiLoading ? 'Caricamento...' : 'Importa da API'}
+              </button>
+            )}
           </div>
 
           {/* Position entry form */}
