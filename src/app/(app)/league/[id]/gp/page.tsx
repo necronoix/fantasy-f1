@@ -3,7 +3,7 @@ import { LeagueNav } from '@/components/ui/LeagueNav'
 import { Badge } from '@/components/ui/Badge'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { CalendarDays } from 'lucide-react'
+import { CalendarDays, Radio } from 'lucide-react'
 import { CircuitMap } from '@/components/f1/CircuitMap'
 
 // Country flag emojis mapped by GP id
@@ -68,6 +68,16 @@ export default async function GpListPage({ params }: Props) {
     .eq('user_id', user.id)
   const selectedGpIds = new Set((mySelections ?? []).map(s => String((s as Record<string, unknown>).gp_id)))
 
+  // Live sessions data
+  const { data: leagueData } = await admin
+    .from('leagues')
+    .select('settings_json')
+    .eq('id', id)
+    .single()
+  const leagueSettings = (leagueData?.settings_json as Record<string, unknown>) ?? {}
+  const liveSessions = (leagueSettings.live_sessions as Record<string, { is_active: boolean; is_final: boolean }>) ?? {}
+  const isAdmin = (myMembership as Record<string, unknown>).role === 'admin'
+
   return (
     <div className="space-y-5">
       <div className="relative">
@@ -91,6 +101,8 @@ export default async function GpListPage({ params }: Props) {
           const isQualifying = gp.status === 'qualifying'
           const accentColor = COUNTRY_ACCENT[gpId] ?? '#E8002D'
           const cityName = CITY_NAMES[gpId] ?? String(gp.circuit ?? '')
+          const liveSession = liveSessions[gpId] ?? null
+          const hasActiveLive = liveSession?.is_active === true
 
           return (
             <Link key={gpId} href={`/league/${id}/gp/${gp.id}`} className="block group">
@@ -124,8 +136,14 @@ export default async function GpListPage({ params }: Props) {
                       <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]" />
                     )}
                     {isCompleted && <Badge variant="green" className="text-[8px] px-1.5 py-0.5">DONE</Badge>}
-                    {isRace && <Badge variant="red" className="text-[8px] px-1.5 py-0.5">LIVE</Badge>}
+                    {isRace && <Badge variant="red" className="text-[8px] px-1.5 py-0.5">RACE</Badge>}
                     {isQualifying && <Badge variant="yellow" className="text-[8px] px-1.5 py-0.5">QUALI</Badge>}
+                    {hasActiveLive && (
+                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-red-400 text-[8px] font-black">LIVE</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -144,9 +162,20 @@ export default async function GpListPage({ params }: Props) {
                       {new Date(String(gp.date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
                     </span>
                   </div>
-                  <span className="text-white font-black text-sm uppercase tracking-wider">
-                    {cityName}
-                  </span>
+                  {hasActiveLive ? (
+                    <Link
+                      href={`/league/${id}/gp/${gpId}/live`}
+                      className="flex items-center gap-1 text-red-400 text-xs font-black hover:text-red-300 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Radio className="w-3 h-3" />
+                      ENTRA LIVE →
+                    </Link>
+                  ) : (
+                    <span className="text-white font-black text-sm uppercase tracking-wider">
+                      {cityName}
+                    </span>
+                  )}
                 </div>
               </div>
             </Link>

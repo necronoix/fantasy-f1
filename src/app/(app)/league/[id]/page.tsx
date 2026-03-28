@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge'
 import { notFound } from 'next/navigation'
 import { Users } from 'lucide-react'
 import { CopyCode } from '@/components/league/CopyCode'
+import { LiveSessionBanner } from '@/components/league/LiveSessionBanner'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -30,14 +31,21 @@ export default async function LeaguePage({ params }: Props) {
 
   const isAdmin = myMembership.role === 'admin'
 
-  // Next GP
-  const { data: nextGp } = await admin
+  // Next GP (upcoming or qualifying/race — whatever is currently active)
+  const { data: activeGp } = await admin
     .from('grands_prix')
     .select('*')
-    .eq('status', 'upcoming')
+    .in('status', ['upcoming', 'qualifying', 'race'])
     .order('date', { ascending: true })
     .limit(1)
     .maybeSingle()
+  const nextGp = activeGp
+
+  // Live session data
+  const leagueSettings = (league.settings_json as Record<string, unknown>) ?? {}
+  const liveSessions = (leagueSettings.live_sessions as Record<string, { is_active: boolean; is_final: boolean }>) ?? {}
+  const nextGpId = nextGp ? String((nextGp as Record<string, unknown>).id) : null
+  const nextGpLiveSession = nextGpId ? (liveSessions[nextGpId] ?? null) : null
 
   return (
     <div className="space-y-5">
@@ -51,6 +59,18 @@ export default async function LeaguePage({ params }: Props) {
       </div>
 
       <LeagueNav leagueId={id} isAdmin={isAdmin} />
+
+      {/* Live Session Banner for current/next GP */}
+      {nextGp && nextGpId && (
+        <LiveSessionBanner
+          leagueId={id}
+          gpId={nextGpId}
+          gpName={String((nextGp as Record<string, unknown>).name)}
+          gpRound={Number((nextGp as Record<string, unknown>).round)}
+          session={nextGpLiveSession}
+          isAdmin={isAdmin}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Invite code - Premium glassmorphism */}

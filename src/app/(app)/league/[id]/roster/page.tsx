@@ -7,6 +7,7 @@ import { TeamCarSilhouette } from '@/components/f1/TeamCarSilhouette'
 import { notFound } from 'next/navigation'
 import { Star, Users, Shield } from 'lucide-react'
 import { TEAM_COLORS as F1_TEAM_COLORS, TEAM_NAMES } from '@/components/f1/f1-data'
+import { LiveSessionBanner } from '@/components/league/LiveSessionBanner'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -26,6 +27,18 @@ export default async function RosterPage({ params }: Props) {
     .single()
 
   if (!myMembership) notFound()
+
+  const isAdmin = myMembership.role === 'admin'
+
+  // Get active GP + live session
+  const [{ data: activeGp }, { data: leagueForLive }] = await Promise.all([
+    admin.from('grands_prix').select('id, name, round').in('status', ['upcoming', 'qualifying', 'race']).order('date', { ascending: true }).limit(1).maybeSingle(),
+    admin.from('leagues').select('settings_json').eq('id', id).single(),
+  ])
+  const liveSettings = (leagueForLive?.settings_json as Record<string, unknown>) ?? {}
+  const liveSessions = (liveSettings.live_sessions as Record<string, { is_active: boolean; is_final: boolean }>) ?? {}
+  const activeGpId = activeGp ? String((activeGp as Record<string, unknown>).id) : null
+  const activeLiveSession = activeGpId ? (liveSessions[activeGpId] ?? null) : null
 
   // Get all members' rosters for this league
   const { data: allRosters } = await admin
@@ -80,7 +93,19 @@ export default async function RosterPage({ params }: Props) {
         </div>
       </div>
 
-      <LeagueNav leagueId={id} isAdmin={myMembership.role === 'admin'} />
+      <LeagueNav leagueId={id} isAdmin={isAdmin} />
+
+      {/* Live Session Banner */}
+      {activeGp && activeGpId && (
+        <LiveSessionBanner
+          leagueId={id}
+          gpId={activeGpId}
+          gpName={String((activeGp as Record<string, unknown>).name)}
+          gpRound={Number((activeGp as Record<string, unknown>).round)}
+          session={activeLiveSession}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {/* My roster */}
       <Card className="relative overflow-hidden">

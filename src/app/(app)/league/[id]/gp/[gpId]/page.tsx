@@ -7,11 +7,11 @@ import { notFound } from 'next/navigation'
 import { GpSelectionForm } from '@/components/league/GpSelectionForm'
 import { GpResultsForm } from '@/components/league/GpResultsForm'
 import { GpHeader } from '@/components/f1/GpHeader'
-import { Star, Trophy, Target, CheckCircle, XCircle, Radio } from 'lucide-react'
-import Link from 'next/link'
+import { Star, Trophy, Target, CheckCircle, XCircle } from 'lucide-react'
 import { isPredictionLocked, formatDateTime } from '@/lib/utils'
 import type { ScoreBreakdown, GpPredictions } from '@/lib/types'
 import { LiveCountdown } from '@/components/league/AdminGpManager'
+import { LiveSessionBanner } from '@/components/league/LiveSessionBanner'
 
 interface Props { params: Promise<{ id: string; gpId: string }> }
 
@@ -118,48 +118,15 @@ export default async function GpPage({ params }: Props) {
       )}
 
       {/* Live Session Banner */}
-      {(hasLiveSession || isAdmin) && !isCompleted && (
-        <Link href={`/league/${id}/gp/${gpId}/live`}>
-          <div className={`relative overflow-hidden rounded-xl border p-4 transition-all hover:scale-[1.01] ${
-            liveSession?.is_active
-              ? 'border-red-500/50 bg-gradient-to-r from-red-500/10 to-red-900/10'
-              : liveSession?.is_final
-                ? 'border-green-500/30 bg-gradient-to-r from-green-500/5 to-green-900/5'
-                : 'border-f1-gray-dark bg-f1-gray-dark/20 hover:border-f1-gray-mid'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {liveSession?.is_active && (
-                  <div className="relative flex items-center justify-center w-8 h-8">
-                    <div className="absolute inset-0 rounded-full bg-red-500/20 animate-ping" />
-                    <Radio className="w-5 h-5 text-red-500 relative z-10" />
-                  </div>
-                )}
-                {!liveSession?.is_active && liveSession?.is_final && (
-                  <CheckCircle className="w-5 h-5 text-green-400" />
-                )}
-                {!hasLiveSession && isAdmin && (
-                  <Radio className="w-5 h-5 text-f1-gray" />
-                )}
-                <div>
-                  <p className="text-white font-bold text-sm">
-                    {liveSession?.is_active ? 'Sessione LIVE in corso' :
-                     liveSession?.is_final ? 'Risultati live confermati' :
-                     liveSession ? 'Sessione live (in pausa)' :
-                     'Avvia sessione LIVE'}
-                  </p>
-                  <p className="text-f1-gray text-xs">
-                    {liveSession?.is_active ? 'Classifica parziale qualifiche in tempo reale' :
-                     liveSession?.is_final ? 'Visualizza i punteggi delle qualifiche' :
-                     isAdmin ? 'Inserisci risultati qualifica in tempo reale' :
-                     'Visualizza i punteggi live'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-f1-gray text-xs">→</span>
-            </div>
-          </div>
-        </Link>
+      {!isCompleted && (
+        <LiveSessionBanner
+          leagueId={id}
+          gpId={gpId}
+          gpName={String(gp.name)}
+          gpRound={Number(gp.round)}
+          session={liveSession}
+          isAdmin={isAdmin}
+        />
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
