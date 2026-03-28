@@ -58,6 +58,7 @@ interface Props {
   leagueId: string
   gpId: string
   gpName: string
+  gpRound?: number
   isAdmin: boolean
   currentUserId: string
   allDrivers: Array<{ id: string; name: string; short_name: string; team_id: string; team?: { name: string; short_name: string; color: string } }>
@@ -68,7 +69,7 @@ interface Props {
 }
 
 export function LiveSessionView({
-  leagueId, gpId, gpName, isAdmin, currentUserId, allDrivers,
+  leagueId, gpId, gpName, gpRound, isAdmin, currentUserId, allDrivers,
   initialSession, initialPlayerScores, initialDriverStandings, initialTeamStandings,
 }: Props) {
   const [session, setSession] = useState(initialSession)
@@ -192,7 +193,8 @@ export function LiveSessionView({
   async function handleImportFromApi() {
     setApiLoading(true)
     try {
-      const res = await fetch('/api/openf1')
+      const apiUrl = gpRound ? `/api/openf1?round=${gpRound}` : '/api/openf1'
+      const res = await fetch(apiUrl)
       const data = await res.json()
 
       if (!res.ok || data.error) {

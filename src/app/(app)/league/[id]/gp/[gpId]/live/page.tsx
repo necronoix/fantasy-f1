@@ -81,6 +81,7 @@ export default async function LiveSessionPage({ params }: Props) {
         leagueId={leagueId}
         gpId={gpId}
         gpName={String(gp.name)}
+        gpRound={Number(gp.round)}
         isAdmin={isAdmin}
         currentUserId={user.id}
         initialSession={liveData.session}
