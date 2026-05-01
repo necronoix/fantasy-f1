@@ -2,6 +2,14 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Skip auth check for public routes — no Supabase call needed
+  const publicPaths = ['/login', '/signup', '/api/']
+  if (pathname === '/' || publicPaths.some(p => pathname.startsWith(p))) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -23,15 +31,21 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
 
-  const protectedPaths = ['/dashboard', '/league', '/auction']
-  const isProtected = protectedPaths.some(p => request.nextUrl.pathname.startsWith(p))
+    const protectedPaths = ['/dashboard', '/league', '/auction']
+    const isProtected = protectedPaths.some(p => pathname.startsWith(p))
 
-  if (isProtected && !user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    if (isProtected && !user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
+    }
+  } catch {
+    // If Supabase is slow/down, let the request through
+    // The page-level auth check will handle it
+    return supabaseResponse
   }
 
   return supabaseResponse
