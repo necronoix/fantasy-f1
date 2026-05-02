@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { formatDistanceToNow, format, isPast, subHours } from 'date-fns'
+import { formatDistanceToNow, format, isPast, subHours, subMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 
 export function cn(...inputs: ClassValue[]) {
@@ -24,13 +24,32 @@ export function isLocked(dateStr: string | undefined): boolean {
   return isPast(new Date(dateStr))
 }
 
-export function isPredictionLocked(qualifyingDatetime: string | undefined | null): boolean {
+/**
+ * Check if predictions are locked.
+ * Uses admin deadline (10 min before) if set, otherwise falls back to qualifying time (1h before).
+ */
+export function isPredictionLocked(
+  qualifyingDatetime: string | undefined | null,
+  adminDeadline?: string | null
+): boolean {
+  // If admin set a deadline, lock 10 minutes before it
+  if (adminDeadline) {
+    const lockTime = subMinutes(new Date(adminDeadline), 10)
+    return isPast(lockTime)
+  }
+  // Fallback: lock 1 hour before qualifying (only if no admin deadline)
   if (!qualifyingDatetime) return false
   const lockTime = subHours(new Date(qualifyingDatetime), 1)
   return isPast(lockTime)
 }
 
-export function getPredictionLockTime(qualifyingDatetime: string | undefined | null): Date | null {
+export function getPredictionLockTime(
+  qualifyingDatetime: string | undefined | null,
+  adminDeadline?: string | null
+): Date | null {
+  if (adminDeadline) {
+    return subMinutes(new Date(adminDeadline), 10)
+  }
   if (!qualifyingDatetime) return null
   return subHours(new Date(qualifyingDatetime), 1)
 }

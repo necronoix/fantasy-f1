@@ -232,11 +232,9 @@ export async function setCaptainAndPredictions(
     return { error: `🔒 Questo GP è bloccato permanentemente (${reasonMap[permanentLocks[gpId].reason] ?? permanentLocks[gpId].reason})` }
   }
 
-  // Check admin-set deadline
+  // Check admin-set deadline and auto-lock
   const deadlines = (settings.gp_deadlines as Record<string, string>) ?? {}
-  if (deadlines[gpId] && new Date(deadlines[gpId]) < new Date()) {
-    return { error: '⏰ Il tempo per le selezioni è scaduto!' }
-  }
+  const adminDeadline = deadlines[gpId] ?? null
 
   const { data: ownedDriver } = await admin
     .from('rosters')
@@ -255,8 +253,8 @@ export async function setCaptainAndPredictions(
     .single()
 
   if (!gp) return { error: 'GP non trovato' }
-  if (isPredictionLocked(gp.qualifying_datetime)) {
-    return { error: 'Selezioni bloccate — meno di 1 ora alla qualifica Q1' }
+  if (isPredictionLocked(gp.qualifying_datetime, adminDeadline)) {
+    return { error: '⏰ Selezioni bloccate — tempo scaduto' }
   }
 
   const { error } = await admin

@@ -37,7 +37,8 @@ export default async function GpPage({ params }: Props) {
   const { gp, selection, roster, scores, allSelections } = data
   const isAdmin = myMembership.role === 'admin'
   const isCompleted = gp.status === 'completed'
-  const predictionsLocked = isPredictionLocked(gp.qualifying_datetime)
+  // Note: predictionsLocked will be recalculated after we fetch the admin deadline below
+  let predictionsLocked = false
 
   // Get all drivers for predictions
   const { data: allDrivers } = await admin
@@ -63,6 +64,9 @@ export default async function GpPage({ params }: Props) {
   const gpDeadlines = (leagueSettings.gp_deadlines as Record<string, string>) ?? {}
   const gpDeadline = gpDeadlines[gpId] ?? null
   const isDeadlinePassed = gpDeadline ? new Date(gpDeadline) < new Date() : false
+
+  // Now calculate predictions lock using admin deadline (10 min before) or qualifying time fallback
+  predictionsLocked = isPredictionLocked(gp.qualifying_datetime, gpDeadline)
 
   // Check if there's a live session for this GP
   const liveSessions = (leagueSettings.live_sessions as Record<string, { is_active: boolean; is_final: boolean }>) ?? {}
@@ -151,7 +155,7 @@ export default async function GpPage({ params }: Props) {
             </CardHeader>
             {predictionsLocked ? (
               <div className="text-center py-4">
-                <p className="text-f1-gray text-sm">Selezioni bloccate — meno di 1 ora alla qualifica Q1</p>
+                <p className="text-f1-gray text-sm">Selezioni bloccate — tempo scaduto</p>
                 {selection?.captain_driver_id && (
                   <p className="text-yellow-400 text-xs mt-2">
                     Capitano: {driverMap.get(String(selection.captain_driver_id)) ?? String(selection.captain_driver_id)}
