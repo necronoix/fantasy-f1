@@ -193,7 +193,7 @@ export function LiveSessionView({
   async function handleImportFromApi() {
     setApiLoading(true)
     try {
-      const apiUrl = gpRound ? `/api/openf1?round=${gpRound}` : '/api/openf1'
+      const apiUrl = `/api/openf1?gpId=${gpId}${gpRound ? `&round=${gpRound}` : ''}`
       const res = await fetch(apiUrl)
       const data = await res.json()
 
