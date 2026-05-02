@@ -193,9 +193,11 @@ export default async function GpPage({ params }: Props) {
               {scores.map((score, i) => {
                 const profile = (score as Record<string, unknown>).profile as Record<string, unknown>
                 const isMe = (score as Record<string, unknown>).user_id === user.id
-                const breakdown = (score as Record<string, unknown>).breakdown_json as ScoreBreakdown
+                const breakdown = (score as Record<string, unknown>).breakdown_json as ScoreBreakdown | null | undefined
                 const predPts = breakdown?.predictions_pts ?? 0
-                const rosterPts = breakdown?.drivers?.reduce((sum, d) => sum + d.subtotal, 0) ?? 0
+                const rosterPts = (breakdown?.drivers && Array.isArray(breakdown.drivers))
+                  ? breakdown.drivers.reduce((sum, d) => sum + (d?.subtotal ?? 0), 0)
+                  : 0
                 const totalScore = Number((score as Record<string, unknown>).total_points ?? 0)
 
                 let rowBg = 'bg-f1-gray-dark/30 border-l-4 border-white/20'
@@ -279,7 +281,7 @@ export default async function GpPage({ params }: Props) {
                               <div className="h-2.5 bg-f1-gray-dark/80 rounded-full overflow-hidden border border-blue-500/30">
                                 <div
                                   className="bg-gradient-to-r from-blue-500 to-blue-400 h-full rounded-full shadow-[0_0_8px_rgba(59,130,246,0.4)]"
-                                  style={{ width: `${(rosterPts / totalScore) * 100}%` }}
+                                  style={{ width: `${totalScore > 0 ? (rosterPts / totalScore) * 100 : 0}%` }}
                                 />
                               </div>
                             </div>
@@ -293,7 +295,7 @@ export default async function GpPage({ params }: Props) {
                               <div className="h-2.5 bg-f1-gray-dark/80 rounded-full overflow-hidden border border-green-500/30">
                                 <div
                                   className="bg-gradient-to-r from-green-500 to-green-400 h-full rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)]"
-                                  style={{ width: `${(predPts / totalScore) * 100}%` }}
+                                  style={{ width: `${totalScore > 0 ? (predPts / totalScore) * 100 : 0}%` }}
                                 />
                               </div>
                             </div>
@@ -379,17 +381,17 @@ export default async function GpPage({ params }: Props) {
             <div className="space-y-2.5 mt-5">
               {allSelections.map((sel) => {
                 const profile = (sel as Record<string, unknown>).profile as Record<string, unknown>
-                const preds = (sel as Record<string, unknown>).predictions_json as GpPredictions
+                const preds = ((sel as Record<string, unknown>).predictions_json as GpPredictions | null | undefined) ?? {}
                 const captainId = String((sel as Record<string, unknown>).captain_driver_id ?? '')
                 const isMe = (sel as Record<string, unknown>).user_id === user.id
 
-                const checkPole = preds?.pole_driver_id
+                const checkPole = preds.pole_driver_id
                   ? preds.pole_driver_id === actualPole : null
-                const checkWinner = preds?.winner_driver_id
+                const checkWinner = preds.winner_driver_id
                   ? preds.winner_driver_id === actualWinner : null
-                const checkFL = preds?.fastest_lap_driver_id
+                const checkFL = preds.fastest_lap_driver_id
                   ? preds.fastest_lap_driver_id === actualFastestLap : null
-                const checkSC = preds?.safety_car !== undefined && actualSafetyCar !== null
+                const checkSC = preds.safety_car !== undefined && actualSafetyCar !== null
                   ? preds.safety_car === actualSafetyCar : null
 
                 const PredRow = ({ label, driverId, correct, icon }: { label: string; driverId?: string; correct: boolean | null; icon: string }) => {
@@ -440,7 +442,7 @@ export default async function GpPage({ params }: Props) {
                       <PredRow label="Pole" driverId={preds?.pole_driver_id} correct={checkPole} icon="🏎" />
                       <PredRow label="Winner" driverId={preds?.winner_driver_id} correct={checkWinner} icon="🏆" />
                       <PredRow label="Fastest Lap" driverId={preds?.fastest_lap_driver_id} correct={checkFL} icon="⚡" />
-                      {preds?.safety_car !== undefined && (
+                      {preds.safety_car !== undefined && (
                         <div className={`flex items-center gap-2 text-xs p-2.5 rounded-lg border transition-all ${
                           checkSC === true ? 'bg-green-500/15 border-green-500/40 shadow-[0_0_8px_rgba(74,222,128,0.15)]' :
                           checkSC === false ? 'bg-red-500/15 border-red-500/40 shadow-[0_0_8px_rgba(248,113,113,0.15)]' :
@@ -512,11 +514,22 @@ export default async function GpPage({ params }: Props) {
     </div>
   )
  } catch (e: unknown) {
-   const msg = e instanceof Error ? e.message : String(e)
-   const stack = e instanceof Error ? e.stack?.split('\n').slice(0, 5).join('\n') : ''
+   // Re-throw Next.js special errors (notFound, redirect)
+   if (e && typeof e === 'object' && 'digest' in e) {
+     const digest = (e as { digest: string }).digest
+     if (digest === 'NEXT_NOT_FOUND' || digest.startsWith('NEXT_REDIRECT')) {
+       throw e
+     }
+   }
+   // Log full error to Vercel function logs
+   console.error('[GP_DETAIL_PAGE_CRASH]', e)
+   const msg = e instanceof Error ? e.message : JSON.stringify(e)
+   const stack = e instanceof Error ? e.stack?.split('\n').slice(0, 8).join('\n') : JSON.stringify(e)
+   const name = e instanceof Error ? e.constructor.name : typeof e
    return (
      <div className="p-8 space-y-4">
        <h1 className="text-xl font-black text-red-400">DEBUG: Errore GP Detail Page</h1>
+       <p className="text-yellow-400 text-sm font-bold">Type: {name}</p>
        <pre className="text-xs text-white bg-red-900/30 p-4 rounded-lg overflow-auto whitespace-pre-wrap">{msg}</pre>
        <pre className="text-xs text-f1-gray bg-f1-gray-dark p-4 rounded-lg overflow-auto whitespace-pre-wrap">{stack}</pre>
      </div>

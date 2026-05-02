@@ -10,6 +10,7 @@ import { LiveSessionBanner } from '@/components/league/LiveSessionBanner'
 interface Props { params: Promise<{ id: string }> }
 
 export default async function LeaguePage({ params }: Props) {
+ try {
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -209,4 +210,20 @@ export default async function LeaguePage({ params }: Props) {
       </div>
     </div>
   )
+ } catch (e: unknown) {
+   if (e && typeof e === 'object' && 'digest' in e) {
+     const digest = (e as { digest: string }).digest
+     if (digest === 'NEXT_NOT_FOUND' || digest.startsWith('NEXT_REDIRECT')) throw e
+   }
+   console.error('[LEAGUE_PAGE_CRASH]', e)
+   const msg = e instanceof Error ? e.message : JSON.stringify(e)
+   const stack = e instanceof Error ? e.stack?.split('\n').slice(0, 8).join('\n') : ''
+   return (
+     <div className="p-8 space-y-4">
+       <h1 className="text-xl font-black text-red-400">DEBUG: Errore League Page</h1>
+       <pre className="text-xs text-white bg-red-900/30 p-4 rounded-lg overflow-auto whitespace-pre-wrap">{msg}</pre>
+       <pre className="text-xs text-f1-gray bg-f1-gray-dark p-4 rounded-lg overflow-auto whitespace-pre-wrap">{stack}</pre>
+     </div>
+   )
+ }
 }
