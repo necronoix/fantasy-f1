@@ -164,14 +164,10 @@ export default async function GpListPage({ params }: Props) {
                     </span>
                   </div>
                   {hasActiveLive ? (
-                    <Link
-                      href={`/league/${id}/gp/${gpId}/live`}
-                      className="flex items-center gap-1 text-red-400 text-xs font-black hover:text-red-300 transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <span className="flex items-center gap-1 text-red-400 text-xs font-black">
                       <Radio className="w-3 h-3" />
-                      ENTRA LIVE →
-                    </Link>
+                      LIVE
+                    </span>
                   ) : (
                     <span className="text-white font-black text-sm uppercase tracking-wider">
                       {cityName}
