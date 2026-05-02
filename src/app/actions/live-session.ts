@@ -45,6 +45,17 @@ export async function startLiveSession(
 
   if (!member || member.role !== 'admin') return { error: 'Solo l\'admin' }
 
+  // Prevent starting live session for completed GPs
+  const { data: gpCheck } = await admin
+    .from('grands_prix')
+    .select('status')
+    .eq('id', gpId)
+    .single()
+
+  if (gpCheck?.status === 'completed') {
+    return { error: 'Non puoi avviare una sessione live per un GP già completato' }
+  }
+
   const { data: league } = await admin
     .from('leagues')
     .select('settings_json')
