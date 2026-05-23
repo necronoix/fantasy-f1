@@ -4,37 +4,43 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
 export async function signIn(formData: FormData) {
-  const supabase = await createClient()
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
+  try {
+    const supabase = await createClient()
+    const email = formData.get('email') as string
+    const password = formData.get('password') as string
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) {
-    // Translate common errors to Italian
-    if (error.message.includes('Invalid login credentials')) {
-      return { error: 'Email o password errata' }
-    }
-    if (error.message.includes('Email not confirmed')) {
-      // Auto-confirm the user if they exist but aren't confirmed
-      const admin = createAdminClient()
-      const { data: users } = await admin.auth.admin.listUsers()
-      const user = users?.users?.find(u => u.email === email)
-      if (user && !user.email_confirmed_at) {
-        await admin.auth.admin.updateUserById(user.id, { email_confirm: true })
-        // Retry login
-        const { error: retryError } = await supabase.auth.signInWithPassword({ email, password })
-        if (retryError) return { error: 'Email o password errata' }
-        redirect('/dashboard')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) {
+        return { error: 'Email o password errata' }
       }
-      return { error: 'Email o password errata' }
+      if (error.message.includes('Email not confirmed')) {
+        const admin = createAdminClient()
+        const { data: users } = await admin.auth.admin.listUsers()
+        const user = users?.users?.find(u => u.email === email)
+        if (user && !user.email_confirmed_at) {
+          await admin.auth.admin.updateUserById(user.id, { email_confirm: true })
+          const { error: retryError } = await supabase.auth.signInWithPassword({ email, password })
+          if (retryError) return { error: 'Email o password errata' }
+          redirect('/dashboard')
+        }
+        return { error: 'Email o password errata' }
+      }
+      if (error.message.includes('too many requests') || error.message.includes('rate limit')) {
+        return { error: 'Troppi tentativi. Riprova tra qualche minuto.' }
+      }
+      return { error: error.message }
     }
-    if (error.message.includes('too many requests') || error.message.includes('rate limit')) {
-      return { error: 'Troppi tentativi. Riprova tra qualche minuto.' }
-    }
-    return { error: error.message }
-  }
 
-  redirect('/dashboard')
+    redirect('/dashboard')
+  } catch (e: unknown) {
+    if (e && typeof e === 'object' && 'digest' in e) throw e // NEXT_REDIRECT
+    const msg = e instanceof Error ? e.message : ''
+    if (msg.includes('fetch') || msg.includes('network') || msg.includes('paused') || msg.includes('503')) {
+      return { error: 'Servizio temporaneamente non disponibile. Riprova tra qualche minuto.' }
+    }
+    return { error: 'Errore durante l\'accesso. Riprova.' }
+  }
 }
 
 export async function signUp(formData: FormData) {
