@@ -4,11 +4,12 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, Settings, Lock, Clock, Users } from 'lucide-react'
+import { ChevronRight, Settings, Lock, Clock, Users, RefreshCw } from 'lucide-react'
 import { AdminLockToggle, ResetGpButton, GpLockPanel } from '@/components/league/AdminControls'
 import type { GpInfo } from '@/components/league/AdminControls'
 import { DeadlinePicker, PlayerSelectionStatus } from '@/components/league/AdminGpManager'
-import { getPlayersSelectionStatus } from '@/app/actions/gp'
+import { AdminDriverOverrides } from '@/components/league/AdminDriverOverrides'
+import { getPlayersSelectionStatus, getGpDriverOverrides } from '@/app/actions/gp'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -83,13 +84,26 @@ export default async function AdminPage({ params }: Props) {
     playerStatuses = await getPlayersSelectionStatus(id, nextGpId)
   }
 
-  // Get all drivers for admin edit
+  // Get all drivers and teams for admin panels
   const { data: allDriversForAdmin } = await admin
     .from('drivers')
-    .select('id, name, short_name')
+    .select('id, name, short_name, team:teams(id, name)')
     .eq('season_id', 2026)
     .eq('active', true)
     .order('name')
+
+  const { data: allTeams } = await admin
+    .from('teams')
+    .select('id, name, color')
+    .eq('season_id', 2026)
+    .order('name')
+
+  // Load overrides for all GPs (keyed by gp_id) — one call per GP is fine for the admin panel
+  const overridesMap: Record<string, Awaited<ReturnType<typeof getGpDriverOverrides>>> = {}
+  for (const gp of gpInfoList) {
+    const ovs = await getGpDriverOverrides(id, gp.id)
+    if (ovs.length > 0) overridesMap[gp.id] = ovs
+  }
 
   return (
     <div className="space-y-5">
@@ -154,6 +168,29 @@ export default async function AdminPage({ params }: Props) {
           Un countdown LIVE apparirà nella pagina del GP.
         </p>
         <DeadlinePicker leagueId={id} gps={gpDeadlineList} />
+      </Card>
+
+      {/* ── OVERRIDE PILOTI ────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-yellow-400" />
+            Cambi Scuderia / Piloti Sostitutivi
+          </CardTitle>
+          <Badge variant="red">Admin</Badge>
+        </CardHeader>
+        <p className="text-f1-gray text-xs mb-3">
+          Gestisci sostituzioni temporanee e cambi di scuderia per un singolo GP.
+          Esempio: Lawson guida per Red Bull invece di Racing Bulls, Tsunoda prende il suo posto.
+          Il calcolo punteggio scuderia terrà conto automaticamente degli override impostati.
+        </p>
+        <AdminDriverOverrides
+          leagueId={id}
+          allGps={gpInfoList}
+          allDrivers={(allDriversForAdmin ?? []) as any}
+          allTeams={(allTeams ?? []) as any}
+          initialOverrides={overridesMap as any}
+        />
       </Card>
 
       {/* ── STATO SELEZIONI GIOCATORI ─────────────── */}
@@ -279,6 +316,8 @@ async function AuditLog({ leagueId }: { leagueId: string }) {
       gp_deadline_set: '⏰ Scadenza GP impostata',
       gp_deadline_removed: '⏰ Scadenza GP rimossa',
       admin_set_selection: '👑 Selezione impostata per giocatore',
+      driver_override_set: '🔄 Override pilota impostato',
+      driver_override_removed: '🗑️ Override pilota rimosso',
     }
     return labels[action] ?? action
   }

@@ -13,7 +13,7 @@ export default async function DashboardPage() {
 
   // Upcoming GPs
   const { data: nextGps } = await createAdminClient()
-    .from('grand_prix')
+    .from('grands_prix')
     .select('*')
     .eq('season_id', 2026)
     .eq('status', 'upcoming')

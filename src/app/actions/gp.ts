@@ -354,6 +354,22 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
 
   if (!members) return
 
+  // Load per-GP driver overrides once for all members
+  const { data: overridesRaw } = await admin
+    .from('gp_driver_overrides')
+    .select('driver_id, temp_team_id, substitute_driver_id')
+    .eq('league_id', leagueId)
+    .eq('gp_id', gpId)
+
+  // driverId → tempTeamId (null = absent, string = racing for that team)
+  const tempTeamMap = new Map<string, string | null>()
+  // driverId → substituteDriverId (who sits in their normal seat)
+  const substituteMap = new Map<string, string>()
+  for (const ov of overridesRaw ?? []) {
+    tempTeamMap.set(ov.driver_id, ov.temp_team_id ?? null)
+    if (ov.substitute_driver_id) substituteMap.set(ov.driver_id, ov.substitute_driver_id)
+  }
+
   for (const member of members) {
     const { data: roster } = await admin
       .from('rosters')
@@ -398,15 +414,43 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
       const teamId = (teamEntry as { team_id: string }).team_id
       teamName = (teamEntry as { team: { name?: string } }).team?.name
 
-      // Get the two drivers belonging to this team
-      const { data: teamDrivers } = await admin
+      // Get the default two drivers for this team
+      const { data: defaultDrivers } = await admin
         .from('drivers')
         .select('id')
         .eq('team_id', teamId)
 
-      if (teamDrivers && teamDrivers.length >= 2) {
-        const teamDriverIds = teamDrivers.map((d: { id: string }) => d.id)
-        teamScore = computeTeamScore(teamId, teamDriverIds, results, rules)
+      if (defaultDrivers) {
+        // Build the actual lineup for this team this GP, applying overrides:
+        // 1. Start from the team's default drivers
+        // 2. Remove drivers who have been reassigned to another team or are absent
+        //    (those have a tempTeamMap entry where the value ≠ teamId)
+        // 3. For each removed driver, add their substitute (if any) in their place
+        // 4. Add drivers from other teams who have been temporarily reassigned TO this team
+        const activeDriverIds = new Set<string>(defaultDrivers.map((d: { id: string }) => d.id))
+
+        for (const dId of [...activeDriverIds]) {
+          if (tempTeamMap.has(dId)) {
+            const dest = tempTeamMap.get(dId)
+            if (dest !== teamId) {
+              // Driver left this team (reassigned elsewhere or absent)
+              activeDriverIds.delete(dId)
+              const sub = substituteMap.get(dId)
+              if (sub) activeDriverIds.add(sub)
+            }
+          }
+        }
+
+        // Drivers from other teams temporarily racing for teamId
+        for (const [dId, dest] of tempTeamMap.entries()) {
+          if (dest === teamId && !activeDriverIds.has(dId)) {
+            activeDriverIds.add(dId)
+          }
+        }
+
+        if (activeDriverIds.size >= 1) {
+          teamScore = computeTeamScore(teamId, [...activeDriverIds], results, rules)
+        }
       }
     }
 
@@ -427,6 +471,111 @@ async function computeAndSaveGpScores(leagueId: string, gpId: string, results: G
         { onConflict: 'league_id,gp_id,user_id' }
       )
   }
+}
+
+/* ── GP Driver Overrides ─────────────────────────────────── */
+
+export async function getGpDriverOverrides(leagueId: string, gpId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('gp_driver_overrides')
+    .select('*, driver:drivers(id, name, short_name, team:teams(id, name)), temp_team:teams!gp_driver_overrides_temp_team_id_fkey(id, name), substitute:drivers!gp_driver_overrides_substitute_driver_id_fkey(id, name, short_name)')
+    .eq('league_id', leagueId)
+    .eq('gp_id', gpId)
+    .order('created_at', { ascending: true })
+
+  return data ?? []
+}
+
+export async function upsertGpDriverOverride(
+  leagueId: string,
+  gpId: string,
+  driverId: string,
+  tempTeamId: string | null,
+  substituteDriverId: string | null,
+  notes: string
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può gestire gli override piloti' }
+
+  const { error } = await admin
+    .from('gp_driver_overrides')
+    .upsert(
+      {
+        league_id: leagueId,
+        gp_id: gpId,
+        driver_id: driverId,
+        temp_team_id: tempTeamId,
+        substitute_driver_id: substituteDriverId,
+        notes: notes || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'league_id,gp_id,driver_id' }
+    )
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: 'driver_override_set',
+    details_json: { gp_id: gpId, driver_id: driverId, temp_team_id: tempTeamId, substitute_driver_id: substituteDriverId },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  return { success: true }
+}
+
+export async function deleteGpDriverOverride(leagueId: string, gpId: string, driverId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Non autorizzato' }
+
+  const admin = createAdminClient()
+
+  const { data: member } = await admin
+    .from('league_members')
+    .select('role')
+    .eq('league_id', leagueId)
+    .eq('user_id', user.id)
+    .single()
+
+  if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può rimuovere gli override piloti' }
+
+  const { error } = await admin
+    .from('gp_driver_overrides')
+    .delete()
+    .eq('league_id', leagueId)
+    .eq('gp_id', gpId)
+    .eq('driver_id', driverId)
+
+  if (error) return { error: error.message }
+
+  await admin.from('audit_log').insert({
+    league_id: leagueId,
+    user_id: user.id,
+    action: 'driver_override_removed',
+    details_json: { gp_id: gpId, driver_id: driverId },
+  })
+
+  revalidatePath(`/league/${leagueId}/admin`)
+  return { success: true }
 }
 
 export async function getGpWithSelection(leagueId: string, gpId: string, userId: string) {

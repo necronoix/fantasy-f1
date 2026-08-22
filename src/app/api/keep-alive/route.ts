@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   try {
     const supabase = createAdminClient()
     const { count, error } = await supabase
-      .from('grand_prix')
+      .from('grands_prix')
       .select('id', { count: 'exact', head: true })
 
     if (error) throw error
