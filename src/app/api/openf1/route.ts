@@ -85,12 +85,29 @@ export async function GET(req: NextRequest) {
     const codeToDriver = new Map(
       (drivers ?? []).map(d => [d.short_name, { id: d.id, name: d.name, short_name: d.short_name }])
     )
+    // Name-based fallbacks: substitute drivers created by the admin have a
+    // placeholder number (900+) and may have a non-standard code, so code and
+    // number lookups miss them. Match by normalized full name, then by unique surname.
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    const nameToDriver = new Map(
+      (drivers ?? []).map(d => [norm(d.name), { id: d.id, name: d.name, short_name: d.short_name }])
+    )
+    const surnameToDriver = new Map<string, { id: string; name: string; short_name: string } | null>()
+    for (const d of drivers ?? []) {
+      const surname = norm(d.name).split(' ').pop() ?? ''
+      if (!surname) continue
+      surnameToDriver.set(surname, surnameToDriver.has(surname) ? null : { id: d.id, name: d.name, short_name: d.short_name })
+    }
 
-    // Map API results to our driver IDs (try code first, then number)
+    // Map API results to our driver IDs (code → full name → number → unique surname)
     const mapped = results.map(r => {
       const byCode = codeToDriver.get(r.driver_code)
       const byNumber = numberToDriver.get(r.driver_number)
-      const driver = byCode ?? byNumber
+      const apiName = norm(r.driver_name ?? '')
+      const byName = apiName ? nameToDriver.get(apiName) : undefined
+      const apiSurname = apiName.split(' ').pop() ?? ''
+      const bySurname = apiSurname ? (surnameToDriver.get(apiSurname) ?? undefined) : undefined
+      const driver = byCode ?? byName ?? byNumber ?? bySurname ?? undefined
 
       return {
         driver_id: driver?.id ?? null,

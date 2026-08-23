@@ -545,11 +545,13 @@ export async function upsertGpDriverOverride(
         .limit(1)
         .maybeSingle()
 
+      // F1-style code from the surname (Yuki Tsunoda → TSU) so API imports match by code
+      const surname = cleanName.split(/\s+/).pop() ?? cleanName
       const { error: subError } = await admin.from('drivers').insert({
         id: subId,
         season_id: 2026,
         name: cleanName,
-        short_name: cleanName.slice(0, 3).toUpperCase(),
+        short_name: surname.slice(0, 3).toUpperCase(),
         team_id: origDriver.team_id,
         number: (maxSub?.number ?? 899) + 1,
         active: true,
