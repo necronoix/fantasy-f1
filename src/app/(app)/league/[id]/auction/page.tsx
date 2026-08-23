@@ -69,13 +69,16 @@ export default async function AuctionPage({ params }: Props) {
     }
   }
 
-  // All drivers + taken status
-  const { data: allDrivers } = await admin
+  // All drivers + taken status (substitute drivers are never auctionable)
+  const { data: allDriversRaw } = await admin
     .from('drivers')
     .select('*, team:teams(*)')
     .eq('season_id', 2026)
     .eq('active', true)
     .order('name')
+  const allDrivers = (allDriversRaw ?? []).filter(
+    d => d.is_substitute !== true && !String(d.id).startsWith('sub-')
+  )
 
   const { data: takenDrivers } = await admin
     .from('rosters')

@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { upsertGpDriverOverride, deleteGpDriverOverride } from '@/app/actions/gp'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { ArrowRight, Plus, Trash2, RefreshCw } from 'lucide-react'
+import { ArrowRight, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface Driver {
@@ -53,16 +53,22 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
   // Form state
   const [driverId, setDriverId] = useState('')
   const [tempTeamId, setTempTeamId] = useState<string>('__absent__')
+  const [subMode, setSubMode] = useState<'none' | 'roster' | 'external'>('none')
   const [substituteDriverId, setSubstituteDriverId] = useState('')
+  const [externalName, setExternalName] = useState('')
   const [notes, setNotes] = useState('')
 
   const currentOverrides = selectedGpId ? (overrides[selectedGpId] ?? []) : []
   const selectedGp = allGps.find(g => g.id === selectedGpId)
+  const selectedDriver = allDrivers.find(d => d.id === driverId)
+  const originalTeamName = selectedDriver?.team?.name ?? 'la sua scuderia'
 
   function resetForm() {
     setDriverId('')
     setTempTeamId('__absent__')
+    setSubMode('none')
     setSubstituteDriverId('')
+    setExternalName('')
     setNotes('')
     setShowForm(false)
   }
@@ -70,20 +76,36 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
   function handleSave() {
     if (!selectedGpId || !driverId) return
     const resolvedTeamId = tempTeamId === '__absent__' ? null : tempTeamId
-    const resolvedSubId = substituteDriverId || null
+    const resolvedSubId = subMode === 'roster' ? (substituteDriverId || null) : null
+    const resolvedExternal = subMode === 'external' ? externalName.trim() : ''
+
+    if (subMode === 'roster' && !resolvedSubId) {
+      toast.error('Seleziona il pilota sostituto dalla lista')
+      return
+    }
+    if (subMode === 'external' && !resolvedExternal) {
+      toast.error('Scrivi il nome del sostituto esterno')
+      return
+    }
 
     startTransition(async () => {
-      const res = await upsertGpDriverOverride(leagueId, selectedGpId, driverId, resolvedTeamId, resolvedSubId, notes)
+      const res = await upsertGpDriverOverride(
+        leagueId, selectedGpId, driverId, resolvedTeamId, resolvedSubId, notes, resolvedExternal || undefined
+      )
       if (res?.error) { toast.error(res.error); return }
       toast.success('Override salvato')
       // Optimistic update
       const driver = allDrivers.find(d => d.id === driverId) ?? null
       const team = resolvedTeamId ? (allTeams.find(t => t.id === resolvedTeamId) ?? null) : null
-      const sub = resolvedSubId ? (allDrivers.find(d => d.id === resolvedSubId) ?? null) : null
+      const sub = resolvedSubId
+        ? (allDrivers.find(d => d.id === resolvedSubId) ?? null)
+        : (resolvedExternal
+            ? { id: 'sub-esterno', name: `${resolvedExternal} (esterno)`, short_name: resolvedExternal.slice(0, 3).toUpperCase() }
+            : null)
       const newOv: Override = {
         driver_id: driverId,
         temp_team_id: resolvedTeamId,
-        substitute_driver_id: resolvedSubId,
+        substitute_driver_id: sub?.id ?? null,
         notes: notes || null,
         driver,
         temp_team: team,
@@ -111,6 +133,7 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
   }
 
   const existingDriverIds = new Set(currentOverrides.map(o => o.driver_id))
+  const regularDrivers = allDrivers.filter(d => !d.id.startsWith('sub-'))
 
   return (
     <div className="space-y-4">
@@ -151,13 +174,14 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
                       </span>
                       <ArrowRight className="w-3 h-3 text-f1-gray flex-shrink-0" />
                       {ov.temp_team_id
-                        ? <Badge variant="yellow">{ov.temp_team?.name ?? ov.temp_team_id}</Badge>
-                        : <Badge variant="gray">Assente</Badge>
+                        ? <Badge variant="yellow">guida per {ov.temp_team?.name ?? ov.temp_team_id}</Badge>
+                        : <Badge variant="gray">non corre questo GP</Badge>
                       }
                     </div>
                     {ov.substitute_driver_id && (
                       <p className="text-xs text-f1-gray mt-1">
-                        Sostituto nel suo team: <span className="text-white font-semibold">{ov.substitute?.name ?? ov.substitute_driver_id}</span>
+                        Al suo posto in {ov.driver?.team?.name ?? 'scuderia'}:{' '}
+                        <span className="text-white font-semibold">{ov.substitute?.name ?? ov.substitute_driver_id}</span>
                       </p>
                     )}
                     {ov.notes && (
@@ -183,19 +207,25 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
 
           {/* Add override form */}
           {showForm ? (
-            <div className="border border-f1-gray-dark rounded-lg p-4 space-y-3 bg-f1-black-light">
+            <div className="border border-f1-gray-dark rounded-lg p-4 space-y-4 bg-f1-black-light">
               <p className="text-xs font-bold uppercase tracking-widest text-f1-gray">Nuovo override</p>
 
-              {/* Driver */}
+              {/* Step 1: driver */}
               <div>
-                <label className="text-xs text-f1-gray mb-1 block">Pilota interessato</label>
+                <label className="text-xs text-white font-semibold mb-0.5 block">
+                  1 · Quale pilota titolare è coinvolto?
+                </label>
+                <p className="text-[11px] text-f1-gray mb-1.5">
+                  Il pilota della stagione che cambia scuderia per questo GP oppure non corre
+                  (es. Lawson che passa in Red Bull, o Hadjar infortunato).
+                </p>
                 <select
                   value={driverId}
                   onChange={e => setDriverId(e.target.value)}
                   className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none"
                 >
                   <option value="">— seleziona pilota —</option>
-                  {allDrivers
+                  {regularDrivers
                     .filter(d => !existingDriverIds.has(d.id))
                     .map(d => (
                       <option key={d.id} value={d.id}>
@@ -205,50 +235,94 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
                 </select>
               </div>
 
-              {/* Temp team or absent */}
+              {/* Step 2: where does he race */}
               <div>
-                <label className="text-xs text-f1-gray mb-1 block">Guida per</label>
+                <label className="text-xs text-white font-semibold mb-0.5 block">
+                  2 · In questo GP dove corre?
+                </label>
+                <p className="text-[11px] text-f1-gray mb-1.5">
+                  Scegli la scuderia per cui gareggia in questo GP, oppure «Non corre».
+                  I suoi punti scuderia andranno al proprietario della scuderia scelta.
+                </p>
                 <select
                   value={tempTeamId}
                   onChange={e => setTempTeamId(e.target.value)}
                   className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none"
                 >
-                  <option value="__absent__">Assente (non guida)</option>
+                  <option value="__absent__">Non corre questo GP</option>
                   {allTeams.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
+                    <option key={t.id} value={t.id}>Corre per: {t.name}</option>
                   ))}
                 </select>
               </div>
 
-              {/* Substitute in original seat */}
+              {/* Step 3: substitute in the vacated seat */}
               <div>
-                <label className="text-xs text-f1-gray mb-1 block">
-                  Sostituto nel suo posto originale <span className="text-f1-gray-mid">(opzionale)</span>
+                <label className="text-xs text-white font-semibold mb-0.5 block">
+                  3 · Chi prende il suo posto in {originalTeamName}?
                 </label>
-                <select
-                  value={substituteDriverId}
-                  onChange={e => setSubstituteDriverId(e.target.value)}
-                  className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none"
-                >
-                  <option value="">Nessun sostituto</option>
-                  {allDrivers
-                    .filter(d => d.id !== driverId)
-                    .map(d => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} ({d.team?.name ?? '?'})
-                      </option>
-                    ))}
-                </select>
+                <p className="text-[11px] text-f1-gray mb-1.5">
+                  Il pilota che occupa il sedile lasciato libero. Può essere un pilota già in lista
+                  oppure un sostituto esterno (riserva) che scrivi a mano — quest'ultimo darà punti
+                  solo alla scuderia, non potrà essere comprato dai giocatori.
+                </p>
+                <div className="flex gap-2 mb-2">
+                  {([
+                    ['none', 'Nessuno'],
+                    ['roster', 'Pilota in lista'],
+                    ['external', 'Sostituto esterno'],
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setSubMode(mode)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+                        subMode === mode
+                          ? 'border-f1-red text-white bg-f1-red/20'
+                          : 'border-f1-gray-dark text-f1-gray hover:border-f1-gray-mid'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {subMode === 'roster' && (
+                  <select
+                    value={substituteDriverId}
+                    onChange={e => setSubstituteDriverId(e.target.value)}
+                    className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none"
+                  >
+                    <option value="">— seleziona pilota —</option>
+                    {regularDrivers
+                      .filter(d => d.id !== driverId)
+                      .map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.team?.name ?? '?'})
+                        </option>
+                      ))}
+                  </select>
+                )}
+                {subMode === 'external' && (
+                  <input
+                    type="text"
+                    value={externalName}
+                    onChange={e => setExternalName(e.target.value)}
+                    placeholder="es. Yuki Tsunoda"
+                    className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none placeholder:text-f1-gray"
+                  />
+                )}
               </div>
 
               {/* Notes */}
               <div>
-                <label className="text-xs text-f1-gray mb-1 block">Note <span className="text-f1-gray-mid">(opzionale)</span></label>
+                <label className="text-xs text-white font-semibold mb-1 block">
+                  Note <span className="text-f1-gray font-normal">(opzionale)</span>
+                </label>
                 <input
                   type="text"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  placeholder="es. infortunio Hadjar, Lawson promosso a RB"
+                  placeholder="es. infortunio Hadjar, Lawson promosso in Red Bull"
                   className="w-full bg-f1-black border border-f1-gray-dark rounded-lg px-3 py-2 text-white text-sm focus:border-f1-red outline-none placeholder:text-f1-gray"
                 />
               </div>
@@ -274,11 +348,14 @@ export function AdminDriverOverrides({ leagueId, allGps, allDrivers, allTeams, i
 
           {/* Info box */}
           <div className="text-xs text-f1-gray bg-f1-black-light border border-f1-gray-dark rounded-lg p-3 space-y-1">
-            <p className="font-semibold text-white">Come funziona il punteggio scuderia:</p>
-            <p>• Se un pilota è <span className="text-yellow-400">riassegnato</span> a un altro team, i suoi punti vanno al proprietario di quel team</p>
-            <p>• Se un pilota è <span className="text-f1-gray-light">assente</span>, il suo team perde quei punti (salvo sostituto)</p>
-            <p>• Il <span className="text-blue-400">sostituto</span> guadagna punti per il team del pilota che sostituisce</p>
-            <p className="text-f1-gray-mid pt-1">Gli override si applicano solo al calcolo punteggio scuderia, non ai piloti in rosa dei giocatori.</p>
+            <p className="font-semibold text-white">Come funzionano i punti:</p>
+            <p>• <span className="text-green-400">Punti pilota (rosa)</span>: NON cambiano mai — chi ha il pilota in rosa e lo schiera continua a ricevere i suoi punti, in qualunque scuderia corra</p>
+            <p>• <span className="text-yellow-400">Punti scuderia</span>: seguono la scuderia reale del GP — se Lawson corre per Red Bull, i suoi punti scuderia vanno a chi possiede Red Bull</p>
+            <p>• <span className="text-blue-400">Sostituto esterno</span>: dà punti solo alla scuderia in cui corre; non entra mai nell'asta e nessun giocatore può possederlo</p>
+            <p className="text-f1-gray-mid pt-1">
+              Esempio completo: Hadjar (Red Bull) infortunato → override 1: Hadjar «non corre». Lawson (Racing Bulls) lo
+              sostituisce → override 2: Lawson «corre per Red Bull», e al suo posto in Racing Bulls sostituto esterno «Tsunoda».
+            </p>
           </div>
         </>
       )}

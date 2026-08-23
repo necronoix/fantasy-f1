@@ -497,7 +497,8 @@ export async function upsertGpDriverOverride(
   driverId: string,
   tempTeamId: string | null,
   substituteDriverId: string | null,
-  notes: string
+  notes: string,
+  externalSubstituteName?: string
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -513,6 +514,51 @@ export async function upsertGpDriverOverride(
     .single()
 
   if (!member || member.role !== 'admin') return { error: 'Solo l\'admin può gestire gli override piloti' }
+
+  // External substitute (a reserve driver not in the season roster): create a
+  // dedicated driver row so they can appear in GP results and score team points.
+  // They are flagged is_substitute so the auction never offers them to players.
+  if (externalSubstituteName?.trim() && !substituteDriverId) {
+    const cleanName = externalSubstituteName.trim()
+    const subId = 'sub-' + cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+
+    const { data: existingSub } = await admin
+      .from('drivers')
+      .select('id')
+      .eq('id', subId)
+      .maybeSingle()
+
+    if (!existingSub) {
+      // The substitute fills the seat in the original driver's default team
+      const { data: origDriver } = await admin
+        .from('drivers')
+        .select('team_id')
+        .eq('id', driverId)
+        .single()
+      if (!origDriver) return { error: 'Pilota originale non trovato' }
+
+      const { data: maxSub } = await admin
+        .from('drivers')
+        .select('number')
+        .gte('number', 900)
+        .order('number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const { error: subError } = await admin.from('drivers').insert({
+        id: subId,
+        season_id: 2026,
+        name: cleanName,
+        short_name: cleanName.slice(0, 3).toUpperCase(),
+        team_id: origDriver.team_id,
+        number: (maxSub?.number ?? 899) + 1,
+        active: true,
+        is_substitute: true,
+      })
+      if (subError) return { error: `Errore creazione sostituto: ${subError.message}` }
+    }
+    substituteDriverId = subId
+  }
 
   const { error } = await admin
     .from('gp_driver_overrides')
