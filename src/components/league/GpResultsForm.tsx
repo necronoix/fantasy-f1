@@ -1,10 +1,11 @@
 'use client'
 
-import { submitGpResults } from '@/app/actions/gp'
+import { submitGpResults, fetchOfficialGpResults } from '@/app/actions/gp'
 import { Button } from '@/components/ui/Button'
 import { useState, useTransition } from 'react'
 import toast from 'react-hot-toast'
 import type { GpResultsData } from '@/lib/types'
+import { Download } from 'lucide-react'
 
 interface Props {
   leagueId: string
@@ -49,6 +50,60 @@ export function GpResultsForm({ leagueId, gpId, allDrivers, existingResults, isC
   const [penalties, setPenalties] = useState<Record<string, number>>(initPenalties)
   const [fastestLap, setFastestLap] = useState<string>(initFL)
   const [safetyCar, setSafetyCar] = useState<boolean>(Boolean(existingResults?.safety_car))
+
+  const [importing, startImport] = useTransition()
+  const [importNote, setImportNote] = useState<{ tone: 'ok' | 'warn'; lines: string[] } | null>(null)
+
+  function handleImport() {
+    startImport(async () => {
+      const res = await fetchOfficialGpResults(leagueId, gpId)
+      if (!('official' in res) || !res.official) {
+        toast.error(res.error ?? 'Import non riuscito')
+        return
+      }
+      const { official } = res
+      const r = official.results
+      const lines: string[] = [`Fonte: dati ufficiali ${official.raceName}`]
+
+      if (official.qualifyingAvailable) {
+        const q = Array(22).fill('')
+        for (const x of r.qualifying_order) if (x.position <= 22) q[x.position - 1] = x.driver_id
+        setQualOrder(q)
+      } else {
+        lines.push('Qualifica non ancora pubblicata: ordine qualifica non modificato')
+      }
+
+      if (official.raceAvailable) {
+        const finishers = r.race_order.filter(x => !x.dnf && !x.dsq && !x.dnc)
+        const ro = Array(22).fill('')
+        finishers.forEach((x, i) => { if (i < 22) ro[i] = x.driver_id })
+        setRaceOrder(ro)
+        setDnf(r.race_order.filter(x => x.dnf).map(x => x.driver_id))
+        setDsq(r.race_order.filter(x => x.dsq).map(x => x.driver_id))
+        setDnc(r.race_order.filter(x => x.dnc).map(x => x.driver_id))
+        setFastestLap(r.race_order.find(x => x.fastest_lap)?.driver_id ?? '')
+        if (official.safetyCar === null) {
+          lines.push('Safety Car: dato non disponibile, verifica la casella a mano')
+        } else {
+          setSafetyCar(official.safetyCar)
+        }
+      } else {
+        lines.push('Gara non ancora pubblicata: importata solo la qualifica')
+      }
+
+      if (official.unmapped.length > 0) {
+        lines.push(
+          `Piloti non riconosciuti (esclusi): ${official.unmapped.map(u => `${u.name} #${u.number}`).join(', ')} — ` +
+          'se è un sostituto, aggiungilo nel pannello Admin → Cambi Scuderia'
+        )
+      }
+      lines.push('Penalità in posizioni non incluse: aggiungile a mano se servono. Controlla e conferma.')
+
+      const warn = official.unmapped.length > 0 || !official.raceAvailable || official.safetyCar === null
+      setImportNote({ tone: warn ? 'warn' : 'ok', lines })
+      toast.success('Risultati importati nel form — controlla e conferma')
+    })
+  }
 
   function toggleFlag(arr: string[], setArr: (v: string[]) => void, driverId: string) {
     setArr(arr.includes(driverId) ? arr.filter(d => d !== driverId) : [...arr, driverId])
@@ -211,6 +266,31 @@ export function GpResultsForm({ leagueId, gpId, allDrivers, existingResults, isC
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-2">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={handleImport}
+          loading={importing}
+          className="w-full"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Importa risultati ufficiali
+        </Button>
+        <p className="text-[11px] text-f1-gray text-center">
+          Scarica qualifica, ordine d&apos;arrivo, ritirati, giro veloce e safety car. Disponibili di solito poche ore dopo la sessione.
+        </p>
+        {importNote && (
+          <div className={`text-xs rounded-lg p-3 border space-y-1 ${
+            importNote.tone === 'ok'
+              ? 'border-green-500/30 bg-green-500/10 text-green-300'
+              : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300'
+          }`}>
+            {importNote.lines.map((l, i) => <p key={i}>{l}</p>)}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <DriverOrderSelect label="Ordine qualifica (Top 10+)" order={qualOrder} setOrder={setQualOrder} maxPos={22} />
         <DriverOrderSelect label="Ordine gara (solo chi ha finito)" order={raceOrder} setOrder={setRaceOrder} maxPos={22} />

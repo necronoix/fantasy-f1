@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getOpenF1Qualifying, getLatestQualifying, getQualifyingByRound } from '@/lib/openf1'
+import { buildDriverMatcher, resolveJolpicaRace, type DriverRow } from '@/lib/official-results'
 
 /**
  * GET /api/openf1
@@ -27,12 +28,15 @@ export async function GET(req: NextRequest) {
     if (gpIdParam) {
       const { data: gp } = await admin
         .from('grands_prix')
-        .select('qualifying_date, round')
+        .select('qualifying_date, date, country, season_id')
         .eq('id', gpIdParam)
         .single()
       if (gp) {
         qualifyingDate = String(gp.qualifying_date)
-        gpRound = Number(gp.round)
+        // The app keeps cancelled GPs in its calendar, so its round numbers
+        // differ from the official ones: resolve the official round by date.
+        const official = await resolveJolpicaRace(Number(gp.season_id ?? 2026), gp)
+        gpRound = official ? Number(official.round) : null
       }
     }
 
@@ -57,9 +61,13 @@ export async function GET(req: NextRequest) {
     // ── Step 3: Fall back to Jolpica if OpenF1 had no data ──
     if (results.length === 0) {
       console.log(`[API/openf1] Trying Jolpica (round=${gpRound}, season=${season})`)
+      // A GP that has no official match must not fall back to "latest", which
+      // would import another GP's qualifying.
       const jolpica = gpRound
         ? await getQualifyingByRound(season, gpRound)
-        : await getLatestQualifying(season)
+        : gpIdParam
+          ? { race: null, results: [] }
+          : await getLatestQualifying(season)
       race = jolpica.race
       results = jolpica.results
       source = 'jolpica'
@@ -79,35 +87,10 @@ export async function GET(req: NextRequest) {
       .eq('season_id', 2026)
       .eq('active', true)
 
-    const numberToDriver = new Map(
-      (drivers ?? []).map(d => [d.number, { id: d.id, name: d.name, short_name: d.short_name }])
-    )
-    const codeToDriver = new Map(
-      (drivers ?? []).map(d => [d.short_name, { id: d.id, name: d.name, short_name: d.short_name }])
-    )
-    // Name-based fallbacks: substitute drivers created by the admin have a
-    // placeholder number (900+) and may have a non-standard code, so code and
-    // number lookups miss them. Match by normalized full name, then by unique surname.
-    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
-    const nameToDriver = new Map(
-      (drivers ?? []).map(d => [norm(d.name), { id: d.id, name: d.name, short_name: d.short_name }])
-    )
-    const surnameToDriver = new Map<string, { id: string; name: string; short_name: string } | null>()
-    for (const d of drivers ?? []) {
-      const surname = norm(d.name).split(' ').pop() ?? ''
-      if (!surname) continue
-      surnameToDriver.set(surname, surnameToDriver.has(surname) ? null : { id: d.id, name: d.name, short_name: d.short_name })
-    }
+    const matchDriver = buildDriverMatcher((drivers ?? []) as DriverRow[])
 
-    // Map API results to our driver IDs (code → full name → number → unique surname)
     const mapped = results.map(r => {
-      const byCode = codeToDriver.get(r.driver_code)
-      const byNumber = numberToDriver.get(r.driver_number)
-      const apiName = norm(r.driver_name ?? '')
-      const byName = apiName ? nameToDriver.get(apiName) : undefined
-      const apiSurname = apiName.split(' ').pop() ?? ''
-      const bySurname = apiSurname ? (surnameToDriver.get(apiSurname) ?? undefined) : undefined
-      const driver = byCode ?? byName ?? byNumber ?? bySurname ?? undefined
+      const driver = matchDriver(r.driver_code, r.driver_number, r.driver_name)
 
       return {
         driver_id: driver?.id ?? null,

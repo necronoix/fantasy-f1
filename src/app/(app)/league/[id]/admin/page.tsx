@@ -306,6 +306,7 @@ async function AuditLog({ leagueId }: { leagueId: string }) {
   const actionLabel = (action: string) => {
     const labels: Record<string, string> = {
       gp_results_submitted: 'Risultati GP inseriti',
+      gp_results_auto_imported: '🤖 Risultati GP importati automaticamente',
       gp_status_reset: 'Stato GP resettato',
       selections_locked: '🔒 Selezioni bloccate',
       selections_unlocked: '🔓 Selezioni sbloccate',
